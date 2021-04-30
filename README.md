@@ -1,2 +1,2 @@
 # plotorder
-Create plots in the cloud using Chia Factory service.
+Create (and buy) plots in the cloud using [Chia Factory](https://chiafactory.com) service.
