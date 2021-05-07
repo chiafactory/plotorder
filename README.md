@@ -47,6 +47,8 @@ Create python 3.7+ virtual environment and install pip requirements:
 pip install -r requirements.txt
 ```
 
+Create `log` folder as a sibling of `main.py` script.
+
 Copy `plotorder.conf.template` into `plotorder.conf` and appropriately set 
 the credentials for the API and local paths.
 
