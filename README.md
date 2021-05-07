@@ -13,33 +13,6 @@ whole download process.
 - Windows/Linux/Mac OSx
 
 
-## Usage
-
-```sh
-$ ~ plotorder login
-> Username: chiafan
-> Password: **********
-
-$ ~ plotorder create
-Opening browser to Chia Factory...
-Order #5GasF received
-
-$ ~ plotorder download --check-after-download --expire-after-check 5GasF
-Downloading order #5GasF
-Farmer pk: ....
-Pool pk: ....
-Status: Running
-All Plots: 40 
- Pending: 30 plots 
- Active:
-   #aFasF - Plotting - [ -----45%      ]
-   #zFzsG - Plotting - [ -12%          ]
- Expired: 5 plots
-Downloaded (5%):
- #zFzsG
- #5GAsH
-```
-
 ## Script details
 
 Create python 3.7+ virtual environment and install pip requirements:
