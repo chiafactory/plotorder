@@ -4,7 +4,7 @@ It contains Order (currently more-or-less useless), Plot with its download funct
 """
 
 from enum import Enum
-from os.path import join
+from os.path import exists, join
 import threading
 
 import requests
@@ -50,8 +50,6 @@ class Plot:
         self.download_progress = None
         self.plot_size = None
         self.download_state = download_state
-        # TODO Add an instance variable that tells whether this instance of Plot should resume download if
-        #  download_state is DOWNLOADING     (and use it in checks).
         self.download_thread = threading.Thread(target=self._thread_download)
         self.kill_download = False
 
@@ -69,10 +67,7 @@ class Plot:
         log.info(f'Starting thread_download for the plot ID={self.plot_id} ...')
         self.download_state = PlotDownloadState.DOWNLOADING
         try:
-            # TODO change filename
-            #filename = self.url.split('/')[-1]
-            #with open(join(plot_dir, filename), 'ab') as f:
-            with open(join(plot_dir, self.plot_id+'.plot'), 'ab') as f:
+            with open(self.get_plot_filename(), 'ab') as f:
                 data_downloaded = f.tell()
                 if data_downloaded > 0:
                     log.info(f'Continuing download from {data_downloaded} byte on!')
@@ -103,6 +98,24 @@ class Plot:
     def stop_downloading(self) -> None:
         """Set kill_download flag so that the downloading thread will break."""
         self.kill_download = True
+
+    def get_plot_filename(self) -> str:
+        """Get the absolute path of the file which the plot should be stored in.
+
+        If plot is not ready for download yet, return None.
+        """
+        if self.url is None:
+            return None
+        return join(plot_dir, self.url.split('/')[-1])
+
+    def check_plot_file_exists(self) -> bool:
+        """Check whether the plot's (partially) downloaded file exists."""
+        filename = self.get_plot_filename()
+        return filename is not None and exists(filename)
+
+    def check_should_download(self) -> bool:
+        """Return True if download has not started yet or if there exists (partially) downloaded file for it."""
+        return self.download_state == PlotDownloadState.NOT_STARTED or self.check_plot_file_exists()
 
     def __repr__(self) -> str:
         return 'Plot[id={},state={}]'.format(self.plot_id, self.state)
