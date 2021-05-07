@@ -33,4 +33,11 @@ Downloaded (5%):
  #zFzsG
  #5GAsH
 
+## Script details
 
+Pass order_id into the script.
+
+Fill the credentials in config/__init__.py-template and copy to config/__init__.py
+
+Run the script and periodically execute api_client.proceed_with_plots() to update progress file and to proceed to the next stage of the plot,
+e.g. from PUBLISHED to DOWNLOADING, to delete downloaded, etc.
