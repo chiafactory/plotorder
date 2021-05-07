@@ -1,0 +1,8 @@
+[API]
+api_url=***
+api_key=***
+
+[LOCAL]
+# absolute paths
+plot_dir=***
+progress_file=***

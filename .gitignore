@@ -7,7 +7,10 @@ output
 .idea
 
 # files with credentials
-config/__init__.py
+plotorder.conf
+
+# testing scripts
+test.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,8 +1,0 @@
-from os.path import dirname, realpath, join
-
-api_url = 'https://chiafactory.com/api/v1'
-# username = '***'
-# password = '***'
-api_key = '***'
-plot_dir = join(dirname(realpath(__file__)), '../output')
-progress_file = join(dirname(realpath(__file__)), '../progress')

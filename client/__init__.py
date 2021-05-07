@@ -1,6 +1,7 @@
 import json
 from typing import List
 
+import click
 import requests
 
 from config.log import log
@@ -73,6 +74,23 @@ class ApiClient:
                     f.write(f'    * {p.plot_id}: downloaded {p.download_progress}%\n')
             f.write(f'Expired plots: {len([x for x in self.plots if x.state == PlotState.EXPIRED])}\n')
             f.write(f'Canceled plots: {len([x for x in self.plots if x.state == PlotState.CANCELLED])}\n')
+        click.clear()
+        click.secho(f'All plots: {len(self.plots) + self.other_clients_count}', fg='blue')
+        click.secho(f'Handled by other clients: {self.other_clients_count}', fg='blue')
+        click.secho(f'Pending plots: {len([x for x in self.plots if x.state == PlotState.PENDING])}', fg='yellow')
+        active = [x for x in self.plots if x.state == PlotState.PLOTTING]
+        click.secho(f'Active: {len(active)}:', fg='green')
+        for p in active:
+            click.secho(f'    * {p.plot_id}: plotting {p.progress}%', fg='green')
+        downloading = [x for x in self.plots if x.state == PlotState.PUBLISHED]
+        click.secho(f'Downloading: {len(downloading)}:', fg='red')
+        for p in downloading:
+            if p.download_state == PlotDownloadState.NOT_STARTED or p.download_progress is None:
+                click.secho(f'    * {p.plot_id} download is going to start!', fg='red')
+            else:
+                click.secho(f'    * {p.plot_id}: downloaded {p.download_progress}%', fg='red')
+        click.secho(f'Expired plots: {len([x for x in self.plots if x.state == PlotState.EXPIRED])}', fg='white')
+        click.secho(f'Canceled plots: {len([x for x in self.plots if x.state == PlotState.CANCELLED])}', fg='white')
 
     def get_orders(self) -> List[Order]:
         """Get all the orders once ApiClient is authorized (i.e. tokens are set)."""
