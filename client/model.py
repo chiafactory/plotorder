@@ -9,6 +9,7 @@ import threading
 
 import requests
 
+from config import request_timeout
 from config.log import log
 
 
@@ -71,12 +72,13 @@ class Plot:
                 data_downloaded = f.tell()
                 if data_downloaded > 0:
                     log.info(f'Continuing download from {data_downloaded} byte on!')
-                with requests.get(self.url, headers={'Range': f'bytes={data_downloaded}-'}, stream=True) as response:
+                with requests.get(self.url,
+                                  headers={'Range': f'bytes={data_downloaded}-'},
+                                  stream=True, timeout=request_timeout) as response:
                     if response.headers.get('Content-Type') == 'text/html':
                         log.info(f'Downloaded already over the plot size: '
                                  f'downloaded={data_downloaded}, plot_size={self.plot_size}')
-                        self.download_state = PlotDownloadState.DOWNLOADED
-                        log.debug(f'Set download_state={PlotDownloadState.DOWNLOADED}, returning.')
+                        self._check_download_complete()
                         return  # TODO test if trying to resume already finished download.
                     self.plot_size = int(response.headers.get('Content-Length')) + data_downloaded
                     for data in response.iter_content(chunk_size=8192):
@@ -87,8 +89,8 @@ class Plot:
                             log.info(f'Stopping the plot ID={self.plot_id} downloading!')
                             break
                     else:  # If no break neither interrupt, download_state will be set to 2 - complete.
-                        self.download_state = PlotDownloadState.DOWNLOADED
-                        log.info(f'Download of the plot ID={self.plot_id} complete!')
+                        # It may also be that next batch of the response is not available,
+                        self._check_download_complete()
             log.debug(f'Re-setting kill_download flag for the plot ID={self.plot_id}.')
             self.kill_download = False
         except Exception as e:
@@ -116,6 +118,25 @@ class Plot:
     def check_should_download(self) -> bool:
         """Return True if download has not started yet or if there exists (partially) downloaded file for it."""
         return self.download_state == PlotDownloadState.NOT_STARTED or self.check_plot_file_exists()
+
+    def _check_download_complete(self):
+        if self.check_plot_file_exists():
+            with open(self.get_plot_filename(), 'ab') as f:
+                file_length = f.tell()
+        else:
+            file_length = 0
+        with requests.get(self.url, stream=True) as response_check:
+            plot_length = int(response_check.headers.get('Content-Length'))
+            log.debug(f'Checked the plot ID={self.plot_id} size: {plot_length}.')
+
+        if file_length == plot_length:
+            self.download_state = PlotDownloadState.DOWNLOADED
+            log.info(f'Download of the plot ID={self.plot_id} complete; setting '
+                     f'download_state={PlotDownloadState.DOWNLOADED}!')
+        else:
+            log.warning(f'The {self.get_plot_filename()} file length is {file_length} while the plot\'s '
+                        f'ID={self.plot_id} length is {plot_length}; won\'t change the download_state.')
+            raise ValueError(f'The plot ID={self.plot_id} download not yet completed!')
 
     def __repr__(self) -> str:
         return 'Plot[id={},state={}]'.format(self.plot_id, self.state)

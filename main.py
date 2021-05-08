@@ -23,9 +23,6 @@ def start_processing_order(order_id, plot_dir, refresh_period, force_download):
         api_client = ApiClient(api_url, api_key, Utils.get_plot_output_dir(plot_dir), progress_file)
         # initialize plot objects list
         api_client.get_plots_for_order_id(order_id, True, force_download)
-        # This method should be periodically executed to update
-        # - progress status
-        # - start new downloads, delete already downloaded plots, restart failed ...
         while True:
             api_client.proceed_with_plots()
             click.secho(f'Time elapsed: {Utils.get_time_elapsed_string(t0)}', bold=True)

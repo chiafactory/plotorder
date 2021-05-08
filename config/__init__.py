@@ -8,14 +8,19 @@ import sys
 import click
 
 
+# constants
+exception_retry_wait = 18
+exception_retry_count = 200
+request_timeout = 60
+
 config = ConfigParser()
 config.read(join(realpath(dirname(__file__)), '../plotorder.conf'))
 
 try:
-    api_url = config['API']['api_url']
+    api_url = config['API'].get('api_url', 'https://chiafactory.com/api/v1')
     api_key = config['API']['api_key']
 except KeyError:
-    click.secho('Missing api_url or api_key in config API section. Fix it and rerun!', fg='red', bold=True)
+    click.secho('Missing api_key in config API section. Fix it and rerun!', fg='red', bold=True)
     sys.exit(1)
 default_progress_file = join(realpath(dirname(__file__)), '../progress.file')
 try:

@@ -6,6 +6,7 @@ from typing import List
 import click
 import requests
 
+from config.decorator import report_exception_issue
 from config.log import log
 from .model import Order, Plot, PlotDownloadState, PlotState
 
@@ -39,8 +40,6 @@ class ApiClient:
                 elif current_plot.download_state == PlotDownloadState.DOWNLOADING:
                     if not current_plot.download_thread.is_alive():
                         # download already started, but the downloading thread is dead; resume.
-                        # TODO somewhere, check whether THIS instance of the client is responsible for
-                        #  this plot download (i.e. downloading file exists)
                         log.warning(f'Failed download of the plot ID={current_plot.plot_id}.')
                         updated_plot = self.get_plot(current_plot.plot_id)
                         if updated_plot is not None:
@@ -62,6 +61,7 @@ class ApiClient:
                     self.plots[i] = updated_plot
         self._write_progress_report()
 
+    @report_exception_issue
     def get_orders(self) -> List[Order]:
         """Get all the orders once ApiClient is authorized (i.e. tokens are set)."""
         orders = []
@@ -70,6 +70,7 @@ class ApiClient:
             orders.append(Order(order_id=order.get('id')))
         return orders
 
+    @report_exception_issue
     def get_plots_for_order_id(self, order_id: str, rewrite: bool = False, force_download: bool = False) -> List[Plot]:
         """Get all the plots for the order with given order_id.
 
@@ -79,12 +80,7 @@ class ApiClient:
         plots = []
         response = requests.request('GET', self._compose_url('plot_orders', order_id),
                                     headers=self.authorization_header)
-        if response.status_code != 200:
-            log.warning(f'Non-200 status code while getting plots for order ID={order_id}: {response.status_code}.')
-            log.debug(response.text)
-            if rewrite:
-                self.plots = plots
-            return None
+        self._check_response(response, order_id)
         other_clients_count = 0
         for plot in response.json().get('plots', []):
             p = Plot(plot_id=plot.get('id'),
@@ -144,15 +140,13 @@ class ApiClient:
         """
         self.check_plots_for_order_id(order.order_id)
 
+    @report_exception_issue
     def get_plot(self, plot_id: str) -> Plot:
         """Get plot with the given ID."""
         log.debug(f'Getting the plot ID={plot_id}.')
         response = requests.request('GET', self._compose_url('plots', plot_id),
                                     headers=self.authorization_header)
-        if response.status_code != 200:
-            log.warning(f'Non-200 status code while getting plot ID={plot_id}: {response.status_code}.')
-            log.debug(response.text)
-            return None
+        self._check_response(response, plot_id)
         json_response = response.json()
         return Plot(plot_id=json_response.get('id'),
                     state=PlotState(json_response.get('state')),
@@ -161,52 +155,51 @@ class ApiClient:
                     url=json_response.get('url'),
                     download_state=PlotDownloadState(json_response.get('download_state', 0)))
 
+    @report_exception_issue
     def download_plot(self, plot) -> None:
         """Check whether plot is published and download if that's the case."""
         if plot.state != PlotState.PUBLISHED:
             log.error(f'Inappropriate state: {plot.state}. Can only download {PlotState.PUBLISHED}.')
             return
-        # The plots that shouldn't be downloaded are skipped already, except if they are forced to be downloaded.
-        # if not plot.check_should_download():
-        #     log.info(f'The plot ID={plot.plot_id} is marked downloading or already downloaded but the plot\'s file '
-        #              f'does not exist meaning that some other client is downloading it.')
-        #     return
-        plot.download()
+        report_downloading = False
         if plot.download_state != PlotDownloadState.DOWNLOADING:
-            log.info(f'Reporting the plot ID={plot.plot_id} download state via API.')
-            payload = {'id': plot.plot_id, 'download_state': PlotDownloadState.DOWNLOADING.value}
-            headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-            headers.update(self.authorization_header)
-            response = requests.request(
-                'PUT', self._compose_url('plots', plot.plot_id), headers=headers, data=json.dumps(payload)
-            )  # this response contains plot object just being updated.
-            if response.status_code != 200:
-                log.warning(f'Exception while updating download state for the plot ID={plot.plot_id}!')
-                log.debug(response.text)
-                return
-            json_response = response.json()
-            if json_response.get('id') != plot.plot_id:
-                log.warning(f'JSON response to PUT plots/{plot.plot_id} does not contain appropriate ID!')
-                log.debug(json_response)
+            # In this case, downloading is being started for the first time.
+            log.debug(f'The plot ID={plot.plot_id} is not yet reported downloading!')
+            report_downloading = True
+        if not plot.download_thread.is_alive():
+            plot.download()
+        else:
+            log.warning(f'The plot with ID={plot.plot_id} is already downloading!')
+        if report_downloading:
+            self.report_downloading(plot)
 
+    @report_exception_issue
+    def report_downloading(self, plot):
+        """Send HTTP PUT request to change plot's download_state."""
+        log.info(f'Reporting the plot ID={plot.plot_id} download state via API.')
+        payload = {'id': plot.plot_id, 'download_state': PlotDownloadState.DOWNLOADING.value}
+        headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+        headers.update(self.authorization_header)
+        response = requests.request(
+            'PUT', self._compose_url('plots', plot.plot_id), headers=headers, data=json.dumps(payload)
+        )  # this response contains plot object just being updated.
+        self._check_response(response, plot.plot_id)
+        json_response = response.json()
+        if json_response.get('id') != plot.plot_id:
+            log.warning(f'JSON response to PUT plots/{plot.plot_id} does not contain appropriate ID!')
+            log.debug(json_response)
+
+    @report_exception_issue
     def delete_plot(self, plot) -> None:
         if plot.download_state == PlotDownloadState.DOWNLOADED:
-            payload = {'id': plot.plot_id, 'state': PlotState.EXPIRED.value, 'download_state': plot.download_state.value}
-            headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
+            payload = {'id': plot.plot_id, 'state': PlotState.EXPIRED.value,
+                       'download_state': plot.download_state.value}
+            headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
             headers.update(self.authorization_header)
             response = requests.request(
                 'PUT', self._compose_url('plots', plot.plot_id), headers=headers, data=json.dumps(payload)
             )  # this response contains plot object just being updated.
-            if response.status_code != 200:
-                log.warning(f'Exception while deleting the plot ID={plot.plot_id}!')
-                log.debug(response.text)
-                return
+            self._check_response(response, plot.plot_id)
             json_response = response.json()
             if json_response.get('id') != plot.plot_id:
                 log.warning(f'JSON response to PUT plots/{plot.plot_id} does not contain appropriate ID!')
@@ -258,6 +251,16 @@ class ApiClient:
     def _compose_url(self, *args) -> str:
         """Compose url with the given path parameters."""
         return '/'.join(map(lambda x: str(x).rstrip('/'), [self.api_url, *args])) + '/'
+
+    @staticmethod
+    def _check_response(response, request_id: str):
+        """Check the response from HTTP request and raise exception if response code is not 200."""
+        if response.status_code != 200:
+            log.warning(f'Non-200 status code while getting plots for order ID={request_id}: {response.status_code}.')
+            response_text = response.text
+            log.debug(response_text)
+            raise ConnectionError(f'Error while getting plots for order ID={request_id}: '
+                                  f'http_status={response.status_code}, response={response_text}')
 
     def _set_tokens(self, username: str, password: str) -> None:
         """Set access and refresh tokens."""
