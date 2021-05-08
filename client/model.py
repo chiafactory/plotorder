@@ -3,13 +3,14 @@
 It contains Order (currently more-or-less useless), Plot with its download function and enumerators for states.
 """
 
+from datetime import datetime
 from enum import Enum
 from os.path import exists, join
 import threading
 
 import requests
 
-from config import request_timeout
+from config import download_chunk_size, download_speed_estimation_window, request_timeout
 from config.log import log
 
 
@@ -48,6 +49,7 @@ class Plot:
         self.state = state
         self.progress = progress
         self.download_progress = None
+        self.download_speed = None
         self.plot_size = None
         self.plot_output_dir = plot_output_dir
         self.download_state = download_state
@@ -81,13 +83,22 @@ class Plot:
                         self._check_download_complete()
                         return  # TODO test if trying to resume already finished download.
                     self.plot_size = int(response.headers.get('Content-Length')) + data_downloaded
-                    for data in response.iter_content(chunk_size=8192):
+                    t0 = datetime.now()
+                    byte_count = 0
+                    for data in response.iter_content(chunk_size=download_chunk_size):
                         data_downloaded += len(data)
                         f.write(data)
                         self.download_progress = int(100 * data_downloaded / self.plot_size)
                         if self.kill_download:
                             log.info(f'Stopping the plot ID={self.plot_id} downloading!')
                             break
+                        t1 = datetime.now()
+                        if (datetime.now() - t0).total_seconds() > download_speed_estimation_window:
+                            self.download_speed = f'[{int(byte_count/download_speed_estimation_window/102.4)/10} kB/s]'
+                            byte_count = 0
+                            t0 = t1
+                        else:
+                            byte_count += download_chunk_size
                     else:  # If no break neither interrupt, download_state will be set to 2 - complete.
                         # It may also be that next batch of the response is not available,
                         self._check_download_complete()

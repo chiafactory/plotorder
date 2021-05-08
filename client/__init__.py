@@ -225,7 +225,7 @@ class ApiClient:
 
         progress_messages = [msg1, msg2, msg3]
         for p in active:
-            msg = f'    * {p.plot_id}: plotting {p.progress}%'
+            msg = f'    * {p.plot_id}: plotting {p.progress:3d}%'
             click.secho(msg, fg='green')
             progress_messages.append(msg)
 
@@ -237,7 +237,7 @@ class ApiClient:
             if p.download_state == PlotDownloadState.NOT_STARTED or p.download_progress is None:
                 msg = f'    * {p.plot_id}: download is going to start!'
             else:
-                msg = f'    * {p.plot_id}: downloaded {p.download_progress}%'
+                msg = f'    * {p.plot_id}: downloaded {p.download_progress:3d}% {p.download_speed:>16}'
             click.secho(msg, fg='red')
             progress_messages.append(msg)
         msg5 = f'Expired plots: {len([x for x in self.plots if x.state == PlotState.EXPIRED])}\n' \

@@ -9,8 +9,10 @@ import click
 
 
 # constants
-exception_retry_wait = 18
+download_chunk_size = 8192
+download_speed_estimation_window = 10
 exception_retry_count = 200
+exception_retry_wait = 18
 request_timeout = 60
 
 config = ConfigParser()
