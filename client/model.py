@@ -48,8 +48,8 @@ class Plot:
         self.url = url
         self.state = state
         self.progress = progress
-        self.download_progress = None
-        self.download_speed = None
+        self.download_progress = 0
+        self.download_speed = ''
         self.plot_size = None
         self.plot_output_dir = plot_output_dir
         self.download_state = download_state
