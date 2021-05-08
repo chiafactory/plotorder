@@ -1,6 +1,7 @@
 # logs, progress file, output:
 log
 progress
+progress.file
 output
 
 # IDE files

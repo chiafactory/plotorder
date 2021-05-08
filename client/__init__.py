@@ -1,3 +1,5 @@
+"""The plotorder API client."""
+
 import json
 from typing import List
 
@@ -9,10 +11,11 @@ from .model import Order, Plot, PlotDownloadState, PlotState
 
 
 class ApiClient:
-    def __init__(self, api_url: str, api_key: str, progress_file: str) -> None:
+    def __init__(self, api_url: str, api_key: str, plot_output_dir: str, progress_file: str) -> None:
         self.api_url = api_url
         self.authorization_header = {'Authorization': f'Token {api_key}'}
         self.progress_file = progress_file
+        self.plot_output_dir = plot_output_dir
         self.access_token = None
         self.refresh_token = None
         self.plots = []
@@ -21,7 +24,7 @@ class ApiClient:
     def proceed_with_plots(self) -> None:
         """Periodically execute that method to proceed to the next stage with the plots being processed.
 
-        The method also writes the progress report into self.progress_file.
+        The method also writes the progress report to the console and into self.progress_file.
         """
         for i in range(len(self.plots)):
             current_plot = self.plots[i]
@@ -57,40 +60,7 @@ class ApiClient:
                 updated_plot = self.get_plot(current_plot.plot_id)
                 if updated_plot is not None:
                     self.plots[i] = updated_plot
-        with open(self.progress_file, 'w') as f:
-            f.write(f'All plots: {len(self.plots) + self.other_clients_count}\n')
-            f.write(f'Handled by other clients: {self.other_clients_count}\n')
-            f.write(f'Pending plots: {len([x for x in self.plots if x.state == PlotState.PENDING])}\n')
-            active = [x for x in self.plots if x.state == PlotState.PLOTTING]
-            f.write(f'Active: {len(active)}:\n')
-            for p in active:
-                f.write(f'    * {p.plot_id}: plotting {p.progress}%')
-            downloading = [x for x in self.plots if x.state == PlotState.PUBLISHED]
-            f.write(f'Downloading: {len(downloading)}:\n')
-            for p in downloading:
-                if p.download_state == PlotDownloadState.NOT_STARTED:
-                    f.write(f'    * {p.plot_id} download is going to start!\n')
-                else:
-                    f.write(f'    * {p.plot_id}: downloaded {p.download_progress}%\n')
-            f.write(f'Expired plots: {len([x for x in self.plots if x.state == PlotState.EXPIRED])}\n')
-            f.write(f'Canceled plots: {len([x for x in self.plots if x.state == PlotState.CANCELLED])}\n')
-        click.clear()
-        click.secho(f'All plots: {len(self.plots) + self.other_clients_count}', fg='blue')
-        click.secho(f'Handled by other clients: {self.other_clients_count}', fg='blue')
-        click.secho(f'Pending plots: {len([x for x in self.plots if x.state == PlotState.PENDING])}', fg='yellow')
-        active = [x for x in self.plots if x.state == PlotState.PLOTTING]
-        click.secho(f'Active: {len(active)}:', fg='green')
-        for p in active:
-            click.secho(f'    * {p.plot_id}: plotting {p.progress}%', fg='green')
-        downloading = [x for x in self.plots if x.state == PlotState.PUBLISHED]
-        click.secho(f'Downloading: {len(downloading)}:', fg='red')
-        for p in downloading:
-            if p.download_state == PlotDownloadState.NOT_STARTED or p.download_progress is None:
-                click.secho(f'    * {p.plot_id} download is going to start!', fg='red')
-            else:
-                click.secho(f'    * {p.plot_id}: downloaded {p.download_progress}%', fg='red')
-        click.secho(f'Expired plots: {len([x for x in self.plots if x.state == PlotState.EXPIRED])}', fg='white')
-        click.secho(f'Canceled plots: {len([x for x in self.plots if x.state == PlotState.CANCELLED])}', fg='white')
+        self._write_progress_report()
 
     def get_orders(self) -> List[Order]:
         """Get all the orders once ApiClient is authorized (i.e. tokens are set)."""
@@ -119,6 +89,7 @@ class ApiClient:
         for plot in response.json().get('plots', []):
             p = Plot(plot_id=plot.get('id'),
                      state=PlotState(plot.get('state')),
+                     plot_output_dir=self.plot_output_dir,
                      progress=plot.get('progress'),
                      url=plot.get('url'),
                      download_state=PlotDownloadState(plot.get('download_state', 0)))
@@ -142,8 +113,8 @@ class ApiClient:
         """
         return self.get_plots_for_order_id(order.order_id, rewrite, force_download)
 
-    def check_plots_for_order(self, order_id) -> None:
-        """Check whether some new plots appear or some plot disappear from the given order.
+    def check_plots_for_order_id(self, order_id: str) -> None:
+        """Check whether some new plots appear or some plot disappear from the order with given ID.
 
         Add new plots and remove the disappeared ones if they are not just being downloaded.
         """
@@ -166,6 +137,13 @@ class ApiClient:
                     log.info(f'Removing the plot ID={plot.plot_id}.')
                     self.plots.remove(plot)
 
+    def check_plots_for_order(self, order: Order) -> None:
+        """Check whether some new plots appear or some plot disappear from the given order.
+
+        Add new plots and remove the disappeared ones if they are not just being downloaded.
+        """
+        self.check_plots_for_order_id(order.order_id)
+
     def get_plot(self, plot_id: str) -> Plot:
         """Get plot with the given ID."""
         log.debug(f'Getting the plot ID={plot_id}.')
@@ -178,6 +156,7 @@ class ApiClient:
         json_response = response.json()
         return Plot(plot_id=json_response.get('id'),
                     state=PlotState(json_response.get('state')),
+                    plot_output_dir=self.plot_output_dir,
                     progress=json_response.get('progress'),
                     url=json_response.get('url'),
                     download_state=PlotDownloadState(json_response.get('download_state', 0)))
@@ -215,7 +194,7 @@ class ApiClient:
 
     def delete_plot(self, plot) -> None:
         if plot.download_state == PlotDownloadState.DOWNLOADED:
-            payload = {'id': plot.plot_id, 'state': PlotState.EXPIRED, 'download_state': plot.download_state.value}
+            payload = {'id': plot.plot_id, 'state': PlotState.EXPIRED.value, 'download_state': plot.download_state.value}
             headers = {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
@@ -236,6 +215,45 @@ class ApiClient:
                 plot.state = PlotState.EXPIRED
         else:
             log.warning(f'Should not delete not-yet-downloaded plot (ID={plot.plot_id})!')
+
+    def _write_progress_report(self, dump_to_file: bool = True) -> None:
+        """Write progress report to console and to file if dump_to_file evaluates to True."""
+        click.clear()
+        msg1 = f'All plots: {len(self.plots) + self.other_clients_count}\n' \
+               f'Handled by other clients: {self.other_clients_count}'
+        click.secho(msg1, fg='cyan')
+
+        msg2 = f'Pending plots: {len([x for x in self.plots if x.state == PlotState.PENDING])}'
+        click.secho(msg2, fg='yellow')
+
+        active = [x for x in self.plots if x.state == PlotState.PLOTTING]
+        msg3 = f'Active: {len(active)}:'
+        click.secho(msg3, fg='green')
+
+        progress_messages = [msg1, msg2, msg3]
+        for p in active:
+            msg = f'    * {p.plot_id}: plotting {p.progress}%'
+            click.secho(msg, fg='green')
+            progress_messages.append(msg)
+
+        downloading = [x for x in self.plots if x.state == PlotState.PUBLISHED]
+        msg4 = f'Downloading: {len(downloading)}'
+        click.secho(msg4, fg='red')
+        progress_messages.append(msg4)
+        for p in downloading:
+            if p.download_state == PlotDownloadState.NOT_STARTED or p.download_progress is None:
+                msg = f'    * {p.plot_id}: download is going to start!'
+            else:
+                msg = f'    * {p.plot_id}: downloaded {p.download_progress}%'
+            click.secho(msg, fg='red')
+            progress_messages.append(msg)
+        msg5 = f'Expired plots: {len([x for x in self.plots if x.state == PlotState.EXPIRED])}\n' \
+               f'Canceled plots: {len([x for x in self.plots if x.state == PlotState.CANCELLED])}'
+        click.secho(msg5, fg='white')
+        progress_messages.append(msg5)
+        if dump_to_file:
+            with open(self.progress_file, 'w') as f:
+                f.write('\n'.join(progress_messages) + '\n')
 
     def _compose_url(self, *args) -> str:
         """Compose url with the given path parameters."""

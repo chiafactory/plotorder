@@ -1,4 +1,4 @@
-"""The model for the plot downloader.
+"""The model for the plotorder downloader.
 
 It contains Order (currently more-or-less useless), Plot with its download function and enumerators for states.
 """
@@ -10,7 +10,6 @@ import threading
 import requests
 
 from config.log import log
-from config import plot_dir
 
 
 class Order:
@@ -40,7 +39,7 @@ class PlotDownloadState(Enum):
 
 class Plot:
     """The Plot class."""
-    def __init__(self, plot_id: str, state: PlotState,
+    def __init__(self, plot_id: str, state: PlotState, plot_output_dir: str,
                  progress: int = 0, url: str = None,
                  download_state: PlotDownloadState = PlotDownloadState.NOT_STARTED) -> None:
         self.plot_id = plot_id
@@ -49,6 +48,7 @@ class Plot:
         self.progress = progress
         self.download_progress = None
         self.plot_size = None
+        self.plot_output_dir = plot_output_dir
         self.download_state = download_state
         self.download_thread = threading.Thread(target=self._thread_download)
         self.kill_download = False
@@ -106,7 +106,7 @@ class Plot:
         """
         if self.url is None:
             return None
-        return join(plot_dir, self.url.split('/')[-1])
+        return join(self.plot_output_dir, self.url.split('/')[-1])
 
     def check_plot_file_exists(self) -> bool:
         """Check whether the plot's (partially) downloaded file exists."""
