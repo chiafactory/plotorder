@@ -2,7 +2,7 @@
 
 from configparser import ConfigParser
 from datetime import datetime
-from os.path import dirname, isabs, join, realpath
+from os.path import dirname, exists, isabs, join, realpath
 import sys
 
 import click
@@ -12,7 +12,7 @@ import click
 download_chunk_size = 8192
 download_speed_estimation_window = 10
 exception_retry_count = 200
-exception_retry_wait = 18
+exception_retry_wait = 18  # if set to negative, the client will exit immediately after an exception happens, no retries
 request_timeout = 60
 
 config = ConfigParser()
@@ -44,10 +44,17 @@ class Utils:
         """
         if plot_dir is None:
             if plot_output_dir is None:
-                click.secho('Set --plot_dir parameter or define the absolute path in plotorder.conf!', fg='red', bold=True)
+                click.secho('Set --plot_dir parameter or define the absolute path in plotorder.conf!',
+                            fg='red', bold=True)
                 sys.exit(1)
             else:
                 return plot_output_dir
+        abs_plot_dir = plot_dir if isabs(plot_dir) else join(realpath(dirname(__file__)), '..', plot_dir)
+        if not exists(abs_plot_dir):
+            click.secho(f'Output directory to store plots in should be set to an EXISTING directory through plot_dir '
+                        f'parameter either in conf file or via --plot_dir parameter in script execution.',
+                        fg='red', bold=True)
+            sys.exit(1)
         return plot_dir if isabs(plot_dir) else join(realpath(dirname(__file__)), '..', plot_dir)
 
     @staticmethod

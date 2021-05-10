@@ -12,6 +12,7 @@ from .model import Order, Plot, PlotDownloadState, PlotState
 
 
 class ApiClient:
+    """The client responsible for all the communication between the downloader and the ChiaFactory."""
     def __init__(self, api_url: str, api_key: str, plot_output_dir: str, progress_file: str) -> None:
         self.api_url = api_url
         self.authorization_header = {'Authorization': f'Token {api_key}'}
@@ -46,6 +47,10 @@ class ApiClient:
                             log.info(f'Re-initializing plot ID={updated_plot.plot_id} download.')
                             self.plots[i] = updated_plot
                             self.download_plot(updated_plot)
+                        else:
+                            log.warning(f'Can not re-find the plot ID={current_plot.plot_id} ...')
+                    else:
+                        log.debug(f'Still downloading the plot ID={current_plot.plot_id}.')
                 elif current_plot.download_state == PlotDownloadState.DOWNLOADED:
                     # still published and already downloaded - delete.
                     log.info(f'Deleting the plot ID={current_plot.plot_id}.')
@@ -169,7 +174,7 @@ class ApiClient:
         if not plot.download_thread.is_alive():
             plot.download()
         else:
-            log.warning(f'The plot with ID={plot.plot_id} is already downloading!')
+            log.warning(f'The plot ID={plot.plot_id} is already downloading!')
         if report_downloading:
             self.report_downloading(plot)
 
@@ -191,6 +196,7 @@ class ApiClient:
 
     @report_exception_issue
     def delete_plot(self, plot) -> None:
+        """Perform basic check and set the plot's state to EXPIRED."""
         if plot.download_state == PlotDownloadState.DOWNLOADED:
             payload = {'id': plot.plot_id, 'state': PlotState.EXPIRED.value,
                        'download_state': plot.download_state.value}
@@ -259,7 +265,7 @@ class ApiClient:
             log.warning(f'Non-200 status code while getting plots for order ID={request_id}: {response.status_code}.')
             response_text = response.text
             log.debug(response_text)
-            raise ConnectionError(f'Error while getting plots for order ID={request_id}: '
+            raise ConnectionError(f'Error while getting response for order/plot ID={request_id}: '
                                   f'http_status={response.status_code}, response={response_text}')
 
     def _set_tokens(self, username: str, password: str) -> None:

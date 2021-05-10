@@ -131,6 +131,10 @@ class Plot:
         return self.download_state == PlotDownloadState.NOT_STARTED or self.check_plot_file_exists()
 
     def _check_download_complete(self):
+        """Check whether the downloaded file's size is the same as the Content-Length header.
+
+        If yes, set download_state to DOWNLOADED, otherwise, raise an exception.
+        """
         if self.check_plot_file_exists():
             with open(self.get_plot_filename(), 'ab') as f:
                 file_length = f.tell()
