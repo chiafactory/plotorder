@@ -49,3 +49,13 @@ the network bandwidth) but in that case, the instances of a script should use
 Some manual intervention may be needed for multi-node execution in order for
 nodes to divide work. Once one node starts downloading a specific plot, that
 plot won't be processed by any other node.
+
+### Final notes
+
+* When the script starts, it may show 0% downloaded at the first check even if
+the plot is partially downloaded already since download starts in a new thread
+which may not be synchronized with the reporting message at the beginning.
+* Once the download is complete, it may happen that a warning appear in log
+files / on console output that a download failed since a thread is not yet
+synchronized with the application state. In the next check, the download
+should be finished and the plot set as expired. 
