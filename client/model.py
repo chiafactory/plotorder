@@ -37,6 +37,7 @@ class PlotDownloadState(Enum):
     NOT_STARTED = 0
     DOWNLOADING = 1
     DOWNLOADED = 2
+    DELETED = 3
 
 
 class Plot:
