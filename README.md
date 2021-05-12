@@ -1,6 +1,6 @@
 # plotorder
 
-Create and download Chia plots on demand using
+Automate download of Chia plots from
 [Chia Factory](https://chiafactory.com) service.
 
 It's using [Chia Factory API](https://chiafactory.com/api/) and streamlines
