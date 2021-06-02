@@ -27,7 +27,7 @@ var (
 	plotCheckFrequency time.Duration
 	verbose            bool
 	rootCmd            = &cobra.Command{
-		Use:   "plotorder ORDER_ID",
+		Use:   "plotorder",
 		Short: "plotorder automates the download of Chia plots from chiafactory.com",
 		Run: func(cmd *cobra.Command, args []string) {
 
@@ -109,13 +109,13 @@ func init() {
 
 	cobra.OnInitialize(initConfig)
 
-	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "path to the config file. Any value passed here will override the config file's")
-	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "the API key to use")
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "https://chiafactory.com/api/v1", "the URL of chiafactory's API")
-	rootCmd.PersistentFlags().StringVar(&orderID, "order-id", "", "only download plots from this order")
+	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "your personal https://chiafactory.com API key")
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "https://chiafactory.com/api/v1", "the URL of Chiafactory's API")
+	rootCmd.PersistentFlags().StringVar(&orderID, "order-id", "", "the id of the order you want to process plots for")
 	rootCmd.PersistentFlags().StringVar(&plotDir, "plot-dir", "", "the path where to store downloaded plots")
 	rootCmd.PersistentFlags().DurationVar(&plotCheckFrequency, "plot-check-frequency", 2*time.Second, "the time between checks on an order's plots")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enables verbose logging (DEBUG)")
+	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file to use")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enables verbose logging (DEBUG level)")
 
 	viper.BindPFlag("api-key", rootCmd.PersistentFlags().Lookup("api-key"))
 	viper.BindPFlag("api-url", rootCmd.PersistentFlags().Lookup("api-url"))
