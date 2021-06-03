@@ -1,5 +1,7 @@
 package client
 
+//TODO: autogenerate from OpenAPI schema (https://chiafactory.com/static/openapi-schema.yml)
+
 type orderResponse struct {
 	ID string
 }
