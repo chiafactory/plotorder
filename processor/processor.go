@@ -14,8 +14,13 @@ import (
 )
 
 type Processor struct {
-	client    *client.Client
-	plots     []*plot.Plot
+	// client is the ChiaFactory API client
+	client *client.Client
+
+	// plots is the list of plots the processor is working with
+	plots []*plot.Plot
+
+	// downloads is used to keep track of the plots being downloaded
 	downloads sync.WaitGroup
 
 	// frequency tells the processor how often to check the state of plots
