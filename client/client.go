@@ -99,11 +99,7 @@ func (c *Client) DeletePlot(ctx context.Context, ID string) error {
 	}
 
 	var r plotResponse
-	err = json.Unmarshal(response, &r)
-	if err != nil {
-		return err
-	}
-	return nil
+	return json.Unmarshal(response, &r)
 }
 
 //GetPlotsForOrderID all the plots for the order with given orderID

@@ -246,6 +246,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 			b := make([]byte, chunkSize)
 			_, err := resp.Body.Read(b)
 			if err == io.EOF {
+				writer.Close()
 				finished = true
 				break
 			}
