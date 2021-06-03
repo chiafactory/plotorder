@@ -1,6 +1,7 @@
 package plot
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -237,11 +238,17 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 
 	chunkSize := int64(8192)
 	go func() {
+		chunk := make([]byte, chunkSize)
+
+		// this will make sure we exactly write `chunkSize` bytes to disk every
+		// time
+		filebuff := bufio.NewWriterSize(file, int(chunkSize))
+
 		defer func() {
 			resp.Body.Close()
+			filebuff.Flush()
 		}()
 
-		b := make([]byte, chunkSize)
 		for {
 
 			// if the context has been cancelled, bail here
@@ -252,13 +259,13 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 			}
 
 			// otherwise, read a new chunk and write it to our file
-			r, err := resp.Body.Read(b)
+			r, err := resp.Body.Read(chunk)
 			if err == io.EOF {
 				finished = true
 				break
 			}
 			downloaded += int64(r)
-			file.Write(b[0:r])
+			filebuff.Write(chunk[0:r])
 		}
 	}()
 
