@@ -43,7 +43,7 @@ func writeReport(plots []*plot.Plot) {
 		case plot.StatePending:
 			addRowWithColour(table, []string{p.ID, "Pending", "", "", "N/A"}, pendingColour)
 		case plot.StatePlotting:
-			addRowWithColour(table, []string{p.ID, "Plotting", "", "", "N/A"}, plottingColour)
+			addRowWithColour(table, []string{p.ID, "Plotting", "", fmt.Sprintf("%d%%", p.PlottingProgress), "N/A"}, plottingColour)
 		case plot.StatePublished:
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
