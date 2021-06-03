@@ -39,7 +39,7 @@ const (
 )
 
 type downloadHistoryRecord struct {
-	bytes int
+	bytes int64
 	time  time.Time
 }
 
@@ -64,7 +64,8 @@ type Plot struct {
 
 	downloadHistory   []downloadHistoryRecord
 	downloadLocalPath string
-	downloadSize      int
+	downloadSize      int64
+	downloadedBytes   int64
 }
 
 func (p *Plot) UpdateDownloadState(state DownloadState) {
@@ -83,7 +84,7 @@ func (p *Plot) UpdatePlottingProgress(progress int) {
 	p.PlottingProgress = progress
 }
 
-func (p *Plot) recordDownloadedBytes(bytes int) {
+func (p *Plot) recordDownloadedBytes(bytes int64) {
 	if len(p.downloadHistory) > 5 {
 		dst := []downloadHistoryRecord{}
 		copy(dst, p.downloadHistory)
@@ -92,6 +93,7 @@ func (p *Plot) recordDownloadedBytes(bytes int) {
 	} else {
 		p.downloadHistory = append(p.downloadHistory, downloadHistoryRecord{bytes: bytes, time: time.Now()})
 	}
+	p.downloadedBytes = bytes
 }
 
 func (p *Plot) getLocalFilename() (string, error) {
@@ -102,13 +104,13 @@ func (p *Plot) getLocalFilename() (string, error) {
 	return path.Base(parsed.Path), nil
 }
 
-func (p *Plot) GetDownloadSpeed() uint64 {
+func (p *Plot) GetDownloadSpeed() int64 {
 	if len(p.downloadHistory) < 2 {
 		return 0
 	}
 	first := p.downloadHistory[0]
 	last := p.downloadHistory[len(p.downloadHistory)-1]
-	return uint64(float64((first.bytes - last.bytes)) / float64((int(first.time.Unix()) - int(last.time.Unix()))))
+	return int64(float64((first.bytes - last.bytes)) / float64((int(first.time.Unix()) - int(last.time.Unix()))))
 }
 
 func (p *Plot) GetDownloadProgress() float32 {
@@ -142,7 +144,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 			log.Errorf("%s download finished", p)
 			p.UpdateDownloadState(DownloadStateDownloaded)
 		} else {
-			log.Infof("%s download was aborted", p)
+			log.Infof("%s download was aborted (%s downloaded)", p, humanize.Bytes(uint64(p.downloadedBytes)))
 		}
 	}()
 
@@ -220,7 +222,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 	}
 
 	// figure out the total size of the plot file
-	totalSize := downloaded
+	totalSize := int64(downloaded)
 	contentLength := resp.Header.Get("Content-Length")
 	if contentLength != "" {
 		var remainingBytes int64
@@ -234,7 +236,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 		return
 	}
 
-	p.downloadSize = int(totalSize)
+	p.downloadSize = totalSize
 
 	chunkSize := int64(8192)
 	go func() {
@@ -277,7 +279,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				p.recordDownloadedBytes(int(downloaded))
+				p.recordDownloadedBytes(int64(downloaded))
 			}
 		}
 	}()
