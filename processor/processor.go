@@ -5,11 +5,9 @@ import (
 	"chiafactory/plotorder/plot"
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -131,13 +129,6 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (chan struct{}
 }
 
 func NewProcessor(c *client.Client, plotDir string, frequency time.Duration) (*Processor, error) {
-	if _, err := os.Stat(plotDir); err != nil {
-		log.Warnf("%s does not exist, creating it", plotDir)
-		if err = os.Mkdir(plotDir, os.ModePerm); err != nil {
-			return nil, errors.Wrap(err, "failed to create plot download directory")
-		}
-	}
-
 	p := &Processor{
 		client:    c,
 		downloads: sync.WaitGroup{},

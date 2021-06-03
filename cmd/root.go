@@ -65,12 +65,13 @@ var (
 				}
 
 				plotDir = path.Join(cwd, "plots")
+			}
 
-				if _, err := os.Stat(plotDir); err != nil {
-					if err = os.Mkdir(plotDir, os.ModePerm); err != nil {
-						log.Errorf("--plot-dir was not provided and we could not create a default location (%s). Please provide --plot-dir", plotDir)
-						return
-					}
+			if _, err := os.Stat(plotDir); err != nil {
+				log.Warnf("the plot download directory (%s) does not exist, so we're creating it", plotDir)
+				if err = os.Mkdir(plotDir, os.ModePerm); err != nil {
+					log.Errorf("the plot download directory did not exist (%s) and we could not create it", plotDir)
+					return
 				}
 			}
 
