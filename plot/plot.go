@@ -258,7 +258,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 	}()
 
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(1 * time.Second)
 		for {
 			select {
 			case <-ctx.Done():
