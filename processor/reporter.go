@@ -49,11 +49,11 @@ func writeReport(plots []*plot.Plot) {
 			case plot.DownloadStateNotStarted:
 				addRowWithColour(table, []string{p.ID, "Download pending", "", "", "N/A"}, publishedColour)
 			case plot.DownloadStateDownloading:
-				addRowWithColour(table, []string{p.ID, "Downloading", p.GetDownloadLocalPath(), fmt.Sprintf("%d%%", p.DownloadProgress), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour)
+				addRowWithColour(table, []string{p.ID, "Downloading", p.GetDownloadLocalPath(), fmt.Sprintf("%.2f%%", p.GetDownloadProgress()), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour)
 			case plot.DownloadStateFailed:
 				addRowWithColour(table, []string{p.ID, "Download failed", "", "", "N/A"}, publishedColour)
 			case plot.DownloadStateDownloaded:
-				addRowWithColour(table, []string{p.ID, "Downloaded", p.GetDownloadLocalPath(), fmt.Sprintf("%d%%", p.DownloadProgress), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour)
+				addRowWithColour(table, []string{p.ID, "Downloaded", p.GetDownloadLocalPath(), fmt.Sprintf("%.2f%%", p.GetDownloadProgress()), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour)
 			default:
 				addRowWithColour(table, []string{p.ID, "<unknown>", "", "", "N/A"}, unknownColour)
 			}

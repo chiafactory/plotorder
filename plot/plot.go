@@ -61,12 +61,9 @@ type Plot struct {
 	// and it gets updated as soon as the download starts
 	DownloadState DownloadState
 
-	// DownloadProgress (0-100%) based on the bytes downloaded vs. the size of the plot. When
-	// the plot is first initialised, this is zero. It's updated as soon as the download starts
-	DownloadProgress int
-
 	downloadHistory   []downloadHistoryRecord
 	downloadLocalPath string
+	downloadSize      int
 }
 
 func (p *Plot) UpdateDownloadState(state DownloadState) {
@@ -83,10 +80,6 @@ func (p *Plot) UpdateState(state State) {
 
 func (p *Plot) UpdatePlottingProgress(progress int) {
 	p.PlottingProgress = progress
-}
-
-func (p *Plot) UpdateDownloadProgress(progress int) {
-	p.DownloadProgress = progress
 }
 
 func (p *Plot) recordDownloadedBytes(bytes int) {
@@ -115,6 +108,19 @@ func (p *Plot) GetDownloadSpeed() uint64 {
 	first := p.downloadHistory[0]
 	last := p.downloadHistory[len(p.downloadHistory)-1]
 	return uint64(float64((first.bytes - last.bytes)) / float64((int(first.time.Unix()) - int(last.time.Unix()))))
+}
+
+func (p *Plot) GetDownloadProgress() float32 {
+	if len(p.downloadHistory) < 1 {
+		return 0
+	}
+
+	if p.downloadSize == 0 {
+		return 0
+	}
+
+	last := p.downloadHistory[len(p.downloadHistory)-1]
+	return float32(100.0 * float64(last.bytes) / float64(p.downloadSize))
 }
 
 func (p *Plot) GetDownloadLocalPath() string {
@@ -227,34 +233,32 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 		return
 	}
 
-	// stream the response into our file in chunks of 8KB (max)
-	reader, writer := io.Pipe()
+	p.downloadSize = int(totalSize)
 
 	chunkSize := int64(8192)
 	go func() {
-		defer resp.Body.Close()
+		defer func() {
+			resp.Body.Close()
+		}()
+
+		b := make([]byte, chunkSize)
 		for {
 
 			// if the context has been cancelled, bail here
 			select {
 			case <-ctx.Done():
-				writer.Close()
 				return
 			default:
 			}
 
 			// otherwise, read a new chunk and write it to our file
-			b := make([]byte, chunkSize)
-			_, err := resp.Body.Read(b)
+			r, err := resp.Body.Read(b)
 			if err == io.EOF {
-				writer.Close()
 				finished = true
 				break
 			}
-			writer.Write(b)
-			downloaded += chunkSize
-
-			p.UpdateDownloadProgress(int((float64(downloaded) / float64(totalSize)) * 100))
+			downloaded += int64(r)
+			file.Write(b[0:r])
 		}
 	}()
 
@@ -271,7 +275,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 		}
 	}()
 
-	io.Copy(file, reader)
+	<-ctx.Done()
 	return nil
 }
 
