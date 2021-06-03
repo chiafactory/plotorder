@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -194,7 +195,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 	expectedStatusCode := http.StatusOK
 	if downloaded > 0 {
 		expectedStatusCode = http.StatusPartialContent
-		log.Infof("%s resuming download (%d bytes already downloaed) from %s into %s", p, downloaded, p.DownloadURL, filePath)
+		log.Infof("%s resuming download (%s already downloaed) from %s into %s", p, humanize.Bytes(uint64(downloaded)), p.DownloadURL, filePath)
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", downloaded))
 	} else {
 		log.Infof("%s starting download from %s into %s", p, p.DownloadURL, filePath)
