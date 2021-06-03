@@ -3,7 +3,8 @@ package processor
 import (
 	"chiafactory/plotorder/plot"
 	"fmt"
-	"os"
+	"sort"
+	"strings"
 
 	"github.com/dustin/go-humanize"
 	"github.com/olekukonko/tablewriter"
@@ -13,57 +14,114 @@ const (
 	pendingColour   = tablewriter.FgYellowColor
 	plottingColour  = tablewriter.FgBlueColor
 	publishedColour = tablewriter.FgGreenColor
-	expiredColour   = tablewriter.FgCyanColor
-	cancelledColour = tablewriter.FgCyanColor
+	expiredColour   = tablewriter.FgMagentaColor
+	cancelledColour = tablewriter.FgMagentaColor
 	unknownColour   = tablewriter.BgRedColor
 )
 
-func addRowWithColour(table *tablewriter.Table, row []string, colour int) {
-	colours := []tablewriter.Colors{}
-	for i := 0; i < len(row); i++ {
-		colours = append(colours, tablewriter.Colors{colour})
-	}
-	table.Rich(row, colours)
+type row struct {
+	data   []string
+	colour int
 }
 
-func formatDownloadSpeed(bytesPerSecond uint64) string {
-	return fmt.Sprintf("%s/s", humanize.Bytes(bytesPerSecond))
+const (
+	StatePending         = "Pending"
+	StatePlotting        = "Plotting"
+	StateDownloadPending = "Download pending"
+	StateDownloading     = "Downloading"
+	StateDownloadFailed  = "Download failed"
+	StateDownloaded      = "Downloaded"
+	StateCancelled       = "Cancelled"
+	StateExpired         = "Expired"
+	StateUnknown         = "<unknown>"
+)
+
+// the entries in the table will be sorted based on the 'State' column, following
+// the order in this slice
+var statesForTableOrder = []string{
+	StateDownloading,
+	StatePlotting,
+	StatePending,
+	StateDownloadPending,
+	StateDownloadFailed,
+	StateDownloaded,
+	StateExpired,
+	StateCancelled,
+	StateUnknown,
+}
+
+func formatDownloadSpeed(bytesPerSecond int64) string {
+	return fmt.Sprintf("%s/s", humanize.Bytes(uint64(bytesPerSecond)))
 }
 
 func writeReport(plots []*plot.Plot) {
+	tableOrder := map[string]int{}
+	for idx, status := range statesForTableOrder {
+		tableOrder[status] = idx
+	}
+
 	fmt.Print("\033[H\033[2J")
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Plot", "State", "Filename", "Progress", "Speed"})
+	rows := []row{}
+
+	tableStr := &strings.Builder{}
+	tableStr.WriteString("\n")
+
+	table := tablewriter.NewWriter(tableStr)
+	table.SetHeader([]string{"Plot", "State", "Progress", "Speed"})
 	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
 	table.SetCenterSeparator("|")
+	table.SetColMinWidth(0, 10)
+	table.SetColMinWidth(1, 15)
+	table.SetColMinWidth(2, 10)
+	table.SetColMinWidth(3, 10)
+	table.SetColumnAlignment([]int{tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER})
 
 	for _, p := range plots {
 		switch p.State {
 		case plot.StatePending:
-			addRowWithColour(table, []string{p.ID, "Pending", "", "", "N/A"}, pendingColour)
+			rows = append(rows, row{[]string{p.ID, StatePending, "", "N/A"}, pendingColour})
 		case plot.StatePlotting:
-			addRowWithColour(table, []string{p.ID, "Plotting", "", fmt.Sprintf("%d%%", p.PlottingProgress), "N/A"}, plottingColour)
+			rows = append(rows, row{[]string{p.ID, StatePlotting, fmt.Sprintf("%d%%", p.PlottingProgress), "N/A"}, plottingColour})
 		case plot.StatePublished:
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
-				addRowWithColour(table, []string{p.ID, "Download pending", "", "", "N/A"}, publishedColour)
+				rows = append(rows, row{[]string{p.ID, StateDownloadPending, "", "N/A"}, publishedColour})
 			case plot.DownloadStateDownloading:
-				addRowWithColour(table, []string{p.ID, "Downloading", p.GetDownloadLocalPath(), fmt.Sprintf("%.2f%%", p.GetDownloadProgress()), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour)
+				rows = append(rows, row{[]string{p.ID, StateDownloading, fmt.Sprintf("%.2f%%", p.GetDownloadProgress()), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour})
 			case plot.DownloadStateFailed:
-				addRowWithColour(table, []string{p.ID, "Download failed", "", "", "N/A"}, publishedColour)
+				rows = append(rows, row{[]string{p.ID, StateDownloadFailed, "", "N/A"}, publishedColour})
 			case plot.DownloadStateDownloaded:
-				addRowWithColour(table, []string{p.ID, "Downloaded", p.GetDownloadLocalPath(), fmt.Sprintf("%.2f%%", p.GetDownloadProgress()), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour)
+				rows = append(rows, row{[]string{p.ID, StateDownloaded, fmt.Sprintf("%.2f%%", p.GetDownloadProgress()), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour})
 			default:
-				addRowWithColour(table, []string{p.ID, "<unknown>", "", "", "N/A"}, unknownColour)
+				rows = append(rows, row{[]string{p.ID, StateUnknown, "", "N/A"}, unknownColour})
 			}
 		case plot.StateCancelled:
-			addRowWithColour(table, []string{p.ID, "Cancelled", "", "", "N/A"}, cancelledColour)
+			rows = append(rows, row{[]string{p.ID, StateCancelled, "", "N/A"}, cancelledColour})
 		case plot.StateExpired:
-			addRowWithColour(table, []string{p.ID, "Expired", "", "", "N/A"}, expiredColour)
+			rows = append(rows, row{[]string{p.ID, StateExpired, "", "N/A"}, expiredColour})
 		default:
-			addRowWithColour(table, []string{p.ID, "<unknown>", "", "", "N/A"}, unknownColour)
+			rows = append(rows, row{[]string{p.ID, StateUnknown, "", "N/A"}, unknownColour})
 		}
 	}
+
+	// sort the table rows
+	sort.Slice(rows, func(i, j int) bool {
+		a := rows[i].data[1]
+		b := rows[j].data[1]
+
+		aidx := tableOrder[a]
+		bidx := tableOrder[b]
+
+		return aidx < bidx
+	})
+
+	for _, r := range rows {
+		table.Rich(r.data, []tablewriter.Colors{[]int{r.colour}})
+	}
+
 	table.Render()
+	tableStr.WriteString("\n")
+	tableStr.WriteString(`Press "q + ENTER" or "Ctrl+C" to exit. Downloads will resume if you restart.`)
+	fmt.Println(tableStr.String())
 }

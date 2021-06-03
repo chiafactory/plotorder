@@ -94,7 +94,7 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (chan struct{}
 
 	proc.plots = plots
 
-	log.Infof("order (%s) has %d plots", orderID, len(plots))
+	log.Infof("%s has %d plots", order, len(plots))
 
 	done := make(chan struct{})
 	go func() {
