@@ -65,7 +65,7 @@ func (proc *Processor) process(ctx context.Context) error {
 				return fmt.Errorf("unexpected download state (%s)", p.DownloadState)
 			}
 		case plot.StateCancelled, plot.StateExpired:
-			// ignore
+			log.Debug("%s is expired or cancelled", p)
 		default:
 			return fmt.Errorf("unexpected state (%s)", p.State)
 		}
