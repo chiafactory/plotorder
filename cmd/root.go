@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"chiafactory/plotorder/client"
 	"chiafactory/plotorder/processor"
 	"context"
@@ -47,6 +48,18 @@ var (
 				cancel()
 			}()
 
+			go func() {
+				scanner := bufio.NewScanner(os.Stdin)
+				for {
+					for scanner.Scan() {
+						if scanner.Text() == "q" {
+							c <- os.Kill
+							break
+						}
+					}
+				}
+			}()
+
 			if apiKey == "" {
 				log.Error("--api-key is required")
 				return
@@ -84,6 +97,7 @@ var (
 				return
 			}
 
+			log.Infof("Loading plots, please wait")
 			done, err := proc.Start(ctx, orderID)
 			if err != nil {
 				log.Errorf("error while starting to process plots for order (%s)", orderID)
