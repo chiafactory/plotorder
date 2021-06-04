@@ -1,12 +1,21 @@
-.PHONY: build-linux build-macos build-windows build
+.PHONY: build-linux-amd build-linux-arm build-darwin-amd build-darwin-arm build-windows build
 
-build-linux:
-	@mkdir -p build && GOOS=linux GOARCH=amd64 go build -o build/plotorder-linux-amd64
+buildir:
+	@mkdir -p build 
 
-build-macos:
-	@mkdir -p build && GOOS=darwin GOARCH=amd64 go build -o build/plotorder-macos-amd64
+build-linux-amd: buildir
+	@GOOS=linux GOARCH=amd64 go build -o build/plotorder-linux-amd64
 
-build-windows:
-	@mkdir -p build && GOOS=windows GOARCH=amd64 go build -o build/plotorder-windows-amd64.exe
+build-linux-arm: buildir
+	@GOOS=linux GOARCH=arm64 go build -o build/plotorder-linux-arm64
 
-build: build-macos build-linux build-windows
+build-darwin-amd: buildir
+	@GOOS=darwin GOARCH=amd64 go build -o build/plotorder-darwin-amd64
+
+build-darwin-arm: buildir
+	@GOOS=darwin GOARCH=arm64 go build -o build/plotorder-darwin-arm64
+
+build-windows: buildir
+	@GOOS=windows GOARCH=amd64 go build -o build/plotorder-windows-amd64.exe
+
+build: build-linux-amd build-linux-arm build-darwin-amd build-darwin-arm build-windows

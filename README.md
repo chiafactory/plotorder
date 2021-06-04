@@ -14,22 +14,30 @@ Binaries are published for `Windows`, `Darwin` (macOS, OSX...) and `Linux` based
 
 The recommended way to use `plotorder` is to download the latest release binaries. For simplicity, you can use any of the following snippets to do it, which will create a `plotorder` executable binary in your current working directory.
 
-**Linux**
+**Linux (amd64)**
 ```shell
 curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-linux-amd64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
 ```
-**macOS**
+**Linux (arm64)**
 ```shell
-curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-macos-amd64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
+curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-linux-arm64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
 ```
+
+**macOS (Intel)**
+```shell
+curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-darwin-amd64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
+```
+**macOS (Apple Silicon)**
+```shell
+curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-darwin-arm64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
+```
+
 **Windows**
 ```powershell
 Invoke-WebRequest -Uri $((((Invoke-WebRequest -Uri ‘https://api.github.com/repos/chiafactory/plotorder/releases/latest').Content | ConvertFrom-Json).assets.browser_download_url | select-string -Pattern 'pandoc-2.14.0.1-1-amd64.deb’).Line) -OutFile plotorder.exe
 ```
 
-You can also find all the binaries [here](https://github.com/chiafactory/plotorder/releases/)
-
-Alternatively, if you have `GO` installed and prefer building and running it by yourself, clone this repo and do `go run ./`.
+You can find all the binaries [here](https://github.com/chiafactory/plotorder/releases/)
 
 Once you download `plotorder`, you can get started very quickly:
 
