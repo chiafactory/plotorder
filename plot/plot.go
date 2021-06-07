@@ -3,6 +3,8 @@ package plot
 import (
 	"bufio"
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -32,11 +35,15 @@ type DownloadState string
 
 const (
 	// Plot download statuses (only used in this tool)
-	DownloadStateNotStarted  DownloadState = "NOT_STARTED"
-	DownloadStateDownloading DownloadState = "DOWNLOADING"
-	DownloadStateDownloaded  DownloadState = "DOWNLOADED"
-	DownloadStateFailed      DownloadState = "FAILED"
+	DownloadStateNotStarted      DownloadState = "NOT_STARTED"
+	DownloadStateDownloading     DownloadState = "DOWNLOADING"
+	DownloadStateDownloaded      DownloadState = "DOWNLOADED"
+	DownloadStateFailed          DownloadState = "FAILED"
+	DownloadStateVadidatingChunk DownloadState = "VALIDATING_CHUNK"
 )
+
+// validateChunkSize is the maximum size (in bytes) of the chunks we'll validate
+const validateChunkSize = int64(1000 * 1000 * 1000)
 
 type downloadHistoryRecord struct {
 	bytes int64
@@ -62,6 +69,7 @@ type Plot struct {
 	// and it gets updated as soon as the download starts
 	DownloadState DownloadState
 
+	resumeFromBytes   *int64
 	downloadHistory   []downloadHistoryRecord
 	downloadLocalPath string
 	downloadSize      int64
@@ -85,14 +93,12 @@ func (p *Plot) UpdatePlottingProgress(progress int) {
 }
 
 func (p *Plot) recordDownloadedBytes(bytes int64) {
-	if len(p.downloadHistory) > 5 {
-		dst := []downloadHistoryRecord{}
-		copy(dst, p.downloadHistory)
-		dst = append(dst, downloadHistoryRecord{bytes: bytes, time: time.Now()})
-		p.downloadHistory = dst
-	} else {
-		p.downloadHistory = append(p.downloadHistory, downloadHistoryRecord{bytes: bytes, time: time.Now()})
+	if len(p.downloadHistory) >= 5 {
+		copy(p.downloadHistory[:], p.downloadHistory[1:])
+		p.downloadHistory[len(p.downloadHistory)-1] = downloadHistoryRecord{}
+		p.downloadHistory = p.downloadHistory[:len(p.downloadHistory)-1]
 	}
+	p.downloadHistory = append(p.downloadHistory, downloadHistoryRecord{bytes: bytes, time: time.Now()})
 	p.downloadedBytes = bytes
 }
 
@@ -110,7 +116,15 @@ func (p *Plot) GetDownloadSpeed() int64 {
 	}
 	first := p.downloadHistory[0]
 	last := p.downloadHistory[len(p.downloadHistory)-1]
-	return int64(float64((first.bytes - last.bytes)) / float64((int(first.time.Unix()) - int(last.time.Unix()))))
+	bytesPerSecond := float64(last.bytes-first.bytes) / float64(last.time.Unix()-first.time.Unix())
+
+	// this will happen after a failed chunk validation
+	if bytesPerSecond < 0 {
+		return 0
+	}
+
+	logrus.Debugf("%s comparing %d vs %d, which took %d seconds -> %s", p, last.bytes, first.bytes, (int(last.time.Unix()) - int(first.time.Unix())), humanize.Bytes(uint64(bytesPerSecond)))
+	return int64(bytesPerSecond)
 }
 
 func (p *Plot) GetDownloadProgress() float32 {
@@ -130,19 +144,44 @@ func (p *Plot) GetDownloadLocalPath() string {
 	return p.downloadLocalPath
 }
 
-func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
+func (p *Plot) calculateChunkHash(chunk io.Reader) (string, error) {
+	h := md5.New()
+	buffer := make([]byte, 100*1000*1000)
+	for {
+		r, err := chunk.Read(buffer)
+		if r > 0 {
+			h.Write(buffer[:r])
+		}
+
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return "", err
+		}
+	}
+
+	b64Hash := base64.StdEncoding.EncodeToString(h.Sum(nil))
+	return b64Hash, nil
+}
+
+func (p *Plot) Download(ctx context.Context, plotDir string, b64ChunkHashes []string) (err error) {
 	var (
-		finished bool
+		finished           bool
+		needsRedownloading bool
 	)
 
 	defer func() {
 		if err != nil {
 			log.Errorf("%s download failed: %s", p, err.Error())
 			p.UpdateDownloadState(DownloadStateFailed)
-			return
 		} else if finished {
 			log.Errorf("%s download finished", p)
 			p.UpdateDownloadState(DownloadStateDownloaded)
+		} else if needsRedownloading {
+			log.Errorf("%s needs re-downloading (last chunk only)", p)
+			p.UpdateDownloadState(DownloadStateNotStarted)
 		} else {
 			log.Infof("%s download was aborted (%s downloaded)", p, humanize.Bytes(uint64(p.downloadedBytes)))
 		}
@@ -188,9 +227,21 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 		return
 	}
 
-	// check if we're resuming a download. If we are, we'll start
-	// consuming from the right position
-	downloaded, err := file.Seek(0, os.SEEK_END)
+	// if `resumeFromBytes` is set, we'll need to start writing to the file
+	// right after that. If it's not set, we'll find out what's the last
+	// position in the file and start from there
+	var (
+		downloaded               int64
+		bytesSinceLastChunkCheck int64
+	)
+	if p.resumeFromBytes != nil {
+		downloaded, err = file.Seek(*p.resumeFromBytes, io.SeekStart)
+		p.resumeFromBytes = nil
+		bytesSinceLastChunkCheck = 0
+	} else {
+		downloaded, err = file.Seek(0, io.SeekEnd)
+		bytesSinceLastChunkCheck = downloaded
+	}
 	if err != nil {
 		err = errors.Wrap(err, "could not seek the file")
 		return
@@ -239,6 +290,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 	p.downloadSize = totalSize
 
 	chunkSize := int64(8192)
+	done := make(chan struct{})
 	go func() {
 		chunk := make([]byte, chunkSize)
 
@@ -249,6 +301,7 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 		defer func() {
 			resp.Body.Close()
 			filebuff.Flush()
+			done <- struct{}{}
 		}()
 
 		for {
@@ -262,30 +315,86 @@ func (p *Plot) Download(ctx context.Context, plotDir string) (err error) {
 
 			// otherwise, read a new chunk and write it to our file
 			r, err := resp.Body.Read(chunk)
+			if r > 0 {
+				downloaded += int64(r)
+				bytesSinceLastChunkCheck += int64(r)
+				filebuff.Write(chunk[0:r])
+			}
+
+			// validate if we just processed a chunk of `validateChunkSize` bytes OR
+			// if we're done downloading (to make sure we also validate the last chunk)
+			if bytesSinceLastChunkCheck >= validateChunkSize || err == io.EOF {
+				// upload download state while we're validating
+				p.UpdateDownloadState(DownloadStateVadidatingChunk)
+
+				chunkLimit := validateChunkSize
+				if bytesSinceLastChunkCheck < validateChunkSize {
+					chunkLimit = bytesSinceLastChunkCheck
+				}
+
+				bytesSinceLastChunkCheck = 0
+
+				chunkN := (downloaded / validateChunkSize) - 1
+				startPos := chunkN * validateChunkSize
+				logrus.Infof("%s is validating chunk %d (%d -> %d)", p, chunkN, startPos, chunkLimit)
+
+				// align with the start of the chunk
+				file.Seek(startPos, io.SeekStart)
+				b64Hash, err := p.calculateChunkHash(io.LimitReader(file, chunkLimit))
+				if err != nil {
+					logrus.Errorf("there was an error calculating the hash for one of the plot chunks (%s)", err.Error())
+					return
+				}
+
+				// compare the hash we calculated with the one from the API
+				isChunkValid := false
+				for idx := range b64ChunkHashes {
+					if int64(idx) == chunkN-1 && b64ChunkHashes[idx] == b64Hash {
+						isChunkValid = true
+						break
+					}
+				}
+
+				// reset download state
+				p.UpdateDownloadState(DownloadStateDownloading)
+
+				// if the chunk is not valid, we'll need to download it again
+				if !isChunkValid {
+					logrus.Errorf("%s the last downloaded chunk was corrupted. It'll be downloaded again", p)
+					p.resumeFromBytes = &startPos
+					needsRedownloading = true
+					return
+				}
+
+				// otherwise, continue with download
+				file.Seek(0, io.SeekEnd)
+			}
+
 			if err == io.EOF {
 				finished = true
 				break
 			}
-			downloaded += int64(r)
-			filebuff.Write(chunk[0:r])
-		}
-	}()
 
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		for {
-			select {
-			case <-ctx.Done():
-				ticker.Stop()
+			if err != nil {
+				logrus.Errorf("there was an error reading the plot file from the server (%s)", err.Error())
 				return
-			case <-ticker.C:
-				p.recordDownloadedBytes(int64(downloaded))
 			}
 		}
 	}()
 
-	<-ctx.Done()
-	return nil
+	ticker := time.NewTicker(1 * time.Second)
+	for {
+		select {
+		case <-done:
+			ticker.Stop()
+			return
+		case <-ctx.Done():
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			p.recordDownloadedBytes(int64(downloaded))
+		}
+	}
 }
 
 func (p *Plot) String() string {
