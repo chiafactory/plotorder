@@ -36,6 +36,9 @@ var (
 				log.SetLevel(log.DebugLevel)
 			}
 
+			reporter := processor.NewReporter()
+			log.SetOutput(reporter)
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -91,7 +94,7 @@ var (
 			log.Infof("apiKey=%s, apiURL=%s, plotDir=%s", fmt.Sprintf("****%s", apiKey[len(apiKey)-4:]), apiURL, plotDir)
 
 			client := client.NewClient(apiKey, apiURL)
-			proc, err := processor.NewProcessor(client, plotDir, plotCheckFrequency)
+			proc, err := processor.NewProcessor(client, reporter, plotDir, plotCheckFrequency)
 			if err != nil {
 				log.Error("plot processing could not start")
 				return
