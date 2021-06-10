@@ -7,7 +7,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
 	"github.com/gosuri/uilive"
 	"github.com/olekukonko/tablewriter"
@@ -21,11 +20,6 @@ const (
 	cancelledColour = tablewriter.FgMagentaColor
 	unknownColour   = tablewriter.BgRedColor
 )
-
-type row struct {
-	data   []string
-	colour int
-}
 
 const (
 	StatePending           = "Pending"
@@ -67,10 +61,6 @@ var (
 	green   = color.New(color.FgGreen)
 )
 
-func formatDownloadSpeed(bytesPerSecond int64) string {
-	return fmt.Sprintf("%s/s", humanize.Bytes(uint64(bytesPerSecond)))
-}
-
 func printSectionTitle(writer io.Writer, title string) {
 	fmt.Fprintf(writer, "\n- %s\n\n", title)
 }
@@ -81,6 +71,11 @@ func NewReporter() *Reporter {
 	return &Reporter{
 		w: w,
 	}
+}
+
+type row struct {
+	data   []string
+	colour int
 }
 
 type Reporter struct {
