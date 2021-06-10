@@ -123,15 +123,16 @@ func (proc *Processor) process(ctx context.Context) error {
 			continue
 		}
 
-		// only check if we're past the scheduled time
-		if s.After(time.Now()) {
-			continue
-		}
-
-		// always reload
-		newP, err := proc.client.GetPlot(ctx, p.ID)
-		if err != nil {
-			return err
+		// only reload based on the schedule
+		var (
+			newP = p
+			err  error
+		)
+		if s.Before(time.Now()) {
+			newP, err = proc.client.GetPlot(ctx, p.ID)
+			if err != nil {
+				return err
+			}
 		}
 
 		// and update state and progres if necessary
@@ -141,7 +142,7 @@ func (proc *Processor) process(ctx context.Context) error {
 			p.UpdatePlottingProgress(newP.PlottingProgress)
 		}
 
-		// by default we'll check every 10 minutes
+		// by default we'll retrieve the plots from the API every 10 minutes
 		proc.schedule[p.ID] = s.Add(10 * time.Minute)
 
 		switch p.State {
@@ -150,14 +151,15 @@ func (proc *Processor) process(ctx context.Context) error {
 		case plot.StatePlotting:
 			log.Debugf("%s is currently being plotted (progress=%d%%)", p, newP.PlottingProgress)
 		case plot.StatePublished:
-			proc.schedule[p.ID] = s.Add(5 * time.Second)
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
 				plotDir, err := proc.getPlotDownloadDirectory(p)
 				if err != nil {
 					return err
 				}
-				p.PrepareDownload(ctx, plotDir)
+				go func() {
+					p.PrepareDownload(ctx, plotDir)
+				}()
 			case plot.DownloadStatePreparing:
 				log.Debugf("%s is being prepared for download", p)
 			case plot.DownloadStateReady:
@@ -256,12 +258,13 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 
 func NewProcessor(c *client.Client, r *Reporter, plotDirs []string, frequency time.Duration) (*Processor, error) {
 	p := &Processor{
-		client:    c,
-		reporter:  r,
-		downloads: sync.WaitGroup{},
-		frequency: frequency,
-		plotDirs:  plotDirs,
-		schedule:  map[string]time.Time{},
+		client:              c,
+		reporter:            r,
+		downloads:           sync.WaitGroup{},
+		frequency:           frequency,
+		plotDirs:            plotDirs,
+		schedule:            map[string]time.Time{},
+		claimedBytesByDrive: map[string]int64{},
 	}
 	return p, nil
 }

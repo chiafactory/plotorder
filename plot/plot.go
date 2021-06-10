@@ -128,7 +128,6 @@ func (p *Plot) GetDownloadSpeed() string {
 		return "N/A"
 	}
 
-	logrus.Debugf("%s comparing %d vs %d, which took %d seconds -> %s", p, last.bytes, first.bytes, (int(last.time.Unix()) - int(first.time.Unix())), humanize.Bytes(uint64(bytesPerSecond)))
 	return fmt.Sprintf("%s/s", humanize.Bytes(uint64(bytesPerSecond)))
 }
 

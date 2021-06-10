@@ -85,7 +85,7 @@ type Reporter struct {
 
 func (r *Reporter) Write(b []byte) (n int, err error) {
 	if r.disableStdout {
-		return 0, nil
+		return len(b), nil
 	}
 	fmt.Printf(string(b))
 	return len(b), nil
