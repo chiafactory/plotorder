@@ -2,13 +2,23 @@ package processor
 
 import (
 	"chiafactory/plotorder/client"
+	"chiafactory/plotorder/disk"
 	"chiafactory/plotorder/plot"
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path"
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
+)
+
+var (
+	ErrNotEnoughSpace = errors.New("not enough space to download")
 )
 
 type Processor struct {
@@ -27,11 +37,78 @@ type Processor struct {
 	// frequency tells the processor how often to check the state of plots
 	frequency time.Duration
 
-	// plotDir is where plots will be downloaded to
-	plotDir string
+	// plotDirs are where plots will be downloaded to. We'll try to fill each
+	// location before using the next one
+	plotDirs            []string
+	claimedBytesByDrive map[string]int64
 
 	// schedule tells us when to check for plots
 	schedule map[string]time.Time
+}
+
+func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
+	filename, err := p.GetDownloadFilename()
+	if err != nil {
+		return "", err
+	}
+
+	plotSize, err := p.GetDownloadSize()
+	if err != nil {
+		return "", err
+	}
+
+	// do a first pass to see if any of the directories contains a partial download of the plot.
+	// If it does, make sure there's enough space to resume the download. If there is, we'll use
+	// this directory. Otherwise, we'll return an error.
+	for _, plotDir := range proc.plotDirs {
+		filePath := path.Join(plotDir, filename)
+
+		// continue if the file does not exist (meaning we're not resuming a download)
+		fInfo, err := os.Stat(filePath)
+		if err != nil {
+			continue
+		}
+		remaining := plotSize - fInfo.Size()
+
+		available, drive, err := disk.GetAvailableSpace(plotDir)
+		if err != nil {
+			return "", err
+		}
+
+		// take into account the space claimed by other downloads
+		available -= uint64(proc.claimedBytesByDrive[drive])
+
+		if remaining > int64(available) {
+			logrus.Errorf("there is not enough space in %s to resume the download for %s (%s left to download)", plotDir, p.ID, humanize.Bytes(uint64(remaining)))
+			return "", ErrNotEnoughSpace
+		}
+
+		proc.claimedBytesByDrive[drive] += remaining
+		return plotDir, nil
+	}
+
+	// now find the next available directory (with enough space)
+	for _, plotDir := range proc.plotDirs {
+		available, drive, err := disk.GetAvailableSpace(plotDir)
+		if err != nil {
+			return "", err
+		}
+
+		// take into account the space claimed by other downloads
+		available -= uint64(proc.claimedBytesByDrive[drive])
+
+		// if there's no room in this directory (drive), continue
+		if uint64(plotSize) > available {
+			logrus.Warnf("%s does not have enough space to download %s (available=%s)", plotDir, p.ID, humanize.Bytes(available))
+			continue
+		}
+
+		proc.claimedBytesByDrive[drive] += plotSize
+		return plotDir, nil
+	}
+
+	logrus.Errorf("none of the provided directories has enough space to download %s", p.ID)
+	return "", ErrNotEnoughSpace
 }
 
 func (proc *Processor) process(ctx context.Context) error {
@@ -69,32 +146,42 @@ func (proc *Processor) process(ctx context.Context) error {
 
 		switch p.State {
 		case plot.StatePending:
-			log.Debug("%s has not started plotting", p)
+			log.Debugf("%s has not started plotting", p)
 		case plot.StatePlotting:
-			log.Debug("%s is currently being plotted (progress=%d%%)", p, newP.PlottingProgress)
+			log.Debugf("%s is currently being plotted (progress=%d%%)", p, newP.PlottingProgress)
 		case plot.StatePublished:
 			proc.schedule[p.ID] = s.Add(5 * time.Second)
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
+				plotDir, err := proc.getPlotDownloadDirectory(p)
+				if err != nil {
+					return err
+				}
+				p.PrepareDownload(ctx, plotDir)
+			case plot.DownloadStatePreparing:
+				log.Debugf("%s is being prepared for download", p)
+			case plot.DownloadStateReady:
 				proc.downloads.Add(1)
 				go func() {
 					defer proc.downloads.Done()
-					p.Download(ctx, proc.plotDir, []string{})
+					p.Download(ctx)
 				}()
 			case plot.DownloadStateDownloading:
-				log.Debug("%s is still being downloaded", p)
+				log.Debugf("%s is still being downloaded", p)
 			case plot.DownloadStateFailed:
-				log.Debug("%s download has failed", p)
+				log.Debugf("%s download has failed", p)
 				delete(proc.schedule, p.ID)
 			case plot.DownloadStateDownloaded:
 				proc.client.DeletePlot(ctx, p.ID)
 				delete(proc.schedule, p.ID)
+			case plot.DownloadStateValidatingChunk:
+				log.Debugf("%s is validating the latest chunk", p)
 			default:
 				return fmt.Errorf("unexpected download state (%s)", p.DownloadState)
 			}
 		case plot.StateCancelled, plot.StateExpired:
 			delete(proc.schedule, p.ID)
-			log.Debug("%s is expired or cancelled", p)
+			log.Debugf("%s is expired or cancelled", p)
 		default:
 			return fmt.Errorf("unexpected state (%s)", p.State)
 		}
@@ -105,44 +192,52 @@ func (proc *Processor) process(ctx context.Context) error {
 	return nil
 }
 
-func (proc *Processor) Start(ctx context.Context, orderID string) (chan struct{}, error) {
+func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 	ticker := time.NewTicker(proc.frequency)
 
 	order, err := proc.client.GetOrder(ctx, orderID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	plots, err := proc.client.GetPlotsForOrderID(ctx, order.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	proc.plots = plots
 
-	for _, plot := range plots {
-		proc.schedule[plot.ID] = time.Now()
+	for _, p := range plots {
+
+		// if the plot is published, get the hashes
+		hashList := []string{}
+		if p.State == plot.StatePublished {
+			hashList, err = proc.client.GetHashesForPlot(ctx, p.ID)
+			if err != nil {
+				return err
+			}
+		}
+
+		p.FileHashes = hashList
+		proc.schedule[p.ID] = time.Now()
 	}
 
 	log.Infof("%s has %d plots", order, len(plots))
 
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			done <- struct{}{}
+			ticker.Stop()
+		}()
 		for {
 			select {
 			case <-ctx.Done():
-				// stop the ticker, we're done at this point
-				ticker.Stop()
-
 				// wait for all the downloads to finish
 				proc.downloads.Wait()
-
-				// we're done now
-				done <- struct{}{}
 				return
 			case <-ticker.C:
-				err = proc.process(ctx)
-				if err != nil {
+				if err = proc.process(ctx); err != nil {
 					// if the context has been cancelled, just continue and
 					// we'll capture this in the other case
 					if ctx.Err() == context.Canceled {
@@ -155,16 +250,17 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (chan struct{}
 			}
 		}
 	}()
-	return done, nil
+	<-done
+	return err
 }
 
-func NewProcessor(c *client.Client, r *Reporter, plotDir string, frequency time.Duration) (*Processor, error) {
+func NewProcessor(c *client.Client, r *Reporter, plotDirs []string, frequency time.Duration) (*Processor, error) {
 	p := &Processor{
 		client:    c,
 		reporter:  r,
 		downloads: sync.WaitGroup{},
 		frequency: frequency,
-		plotDir:   plotDir,
+		plotDirs:  plotDirs,
 		schedule:  map[string]time.Time{},
 	}
 	return p, nil
