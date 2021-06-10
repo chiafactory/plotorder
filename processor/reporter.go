@@ -4,12 +4,12 @@ import (
 	"chiafactory/plotorder/plot"
 	"fmt"
 	"io"
-	"os"
 	"sort"
-	"strings"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
+	"github.com/gosuri/uilive"
 	"github.com/olekukonko/tablewriter"
 )
 
@@ -28,16 +28,18 @@ type row struct {
 }
 
 const (
-	StatePending         = "Pending"
-	StatePlotting        = "Plotting"
-	StateDownloadPending = "Download pending"
-	StateDownloading     = "Downloading"
-	StateDownloadFailed  = "Download failed"
-	StateDownloaded      = "Downloaded"
-	StateValidatingChunk = "Validating"
-	StateCancelled       = "Cancelled"
-	StateExpired         = "Expired"
-	StateUnknown         = "<unknown>"
+	StatePending           = "Pending"
+	StatePlotting          = "Plotting"
+	StateDownloadPending   = "Download pending"
+	StateDownloadPreparing = "Preparing download"
+	StateDownloadReady     = "Ready to download"
+	StateDownloading       = "Downloading"
+	StateDownloadFailed    = "Download failed"
+	StateDownloaded        = "Downloaded"
+	StateValidatingChunk   = "Validating"
+	StateCancelled         = "Cancelled"
+	StateExpired           = "Expired"
+	StateUnknown           = "<unknown>"
 )
 
 // the entries in the table will be sorted based on the 'State' column, following
@@ -47,6 +49,9 @@ var statesForTableOrder = []string{
 	StatePlotting,
 	StatePending,
 	StateDownloadPending,
+	StateDownloadPreparing,
+	StateDownloadReady,
+	StateValidatingChunk,
 	StateDownloadFailed,
 	StateDownloaded,
 	StateExpired,
@@ -54,45 +59,55 @@ var statesForTableOrder = []string{
 	StateUnknown,
 }
 
+var (
+	cyan    = color.New(color.FgCyan)
+	yellow  = color.New(color.FgYellow)
+	magenta = color.New(color.FgMagenta)
+	blue    = color.New(color.FgBlue)
+	green   = color.New(color.FgGreen)
+)
+
 func formatDownloadSpeed(bytesPerSecond int64) string {
 	return fmt.Sprintf("%s/s", humanize.Bytes(uint64(bytesPerSecond)))
 }
 
 func printSectionTitle(writer io.Writer, title string) {
-	fmt.Fprint(writer, "------------------------------\n")
-	fmt.Fprintf(writer, "%s\n", title)
-	fmt.Fprint(writer, "------------------------------\n")
-
+	fmt.Fprintf(writer, "\n- %s\n\n", title)
 }
 
 func NewReporter() *Reporter {
-	return &Reporter{stdoutEnabled: true}
+	w := uilive.New()
+	w.RefreshInterval = 500 * time.Millisecond
+	return &Reporter{
+		w: w,
+	}
 }
 
 type Reporter struct {
-	stdoutEnabled   bool
-	pendingLogLines []string
+	w             *uilive.Writer
+	disableStdout bool
 }
 
 func (r *Reporter) Write(b []byte) (n int, err error) {
-	// write to stdout when needed
-	if r.stdoutEnabled {
-		os.Stdout.Write(b)
+	if r.disableStdout {
+		return 0, nil
 	}
-
-	if len(r.pendingLogLines) >= 10 {
-		copy(r.pendingLogLines[0:], r.pendingLogLines[1:])
-		r.pendingLogLines[len(r.pendingLogLines)-1] = ""
-		r.pendingLogLines = r.pendingLogLines[:len(r.pendingLogLines)-1]
-	}
-	r.pendingLogLines = append(r.pendingLogLines, string(b))
+	fmt.Printf(string(b))
 	return len(b), nil
 }
 
+func (r *Reporter) Start() {
+	r.w.Start()
+}
+
+func (r *Reporter) Stop() {
+	r.w.Stop()
+}
+
 func (r *Reporter) render(plots []*plot.Plot) {
-	// as soon as we call render, disable stdout
-	if r.stdoutEnabled {
-		r.stdoutEnabled = false
+	// disable stdout writes in the first render
+	if !r.disableStdout {
+		r.disableStdout = true
 	}
 
 	tableOrder := map[string]int{}
@@ -100,16 +115,12 @@ func (r *Reporter) render(plots []*plot.Plot) {
 		tableOrder[status] = idx
 	}
 
-	fmt.Print("\033[H\033[2J")
-
 	rows := []row{}
-
-	out := &strings.Builder{}
-
-	table := tablewriter.NewWriter(out)
+	table := tablewriter.NewWriter(r.w)
 	table.SetHeader([]string{"Plot", "State", "Progress", "Speed"})
+	table.SetAutoFormatHeaders(false)
 	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
-	table.SetCenterSeparator("|")
+	table.SetCenterSeparator("+")
 	table.SetColMinWidth(0, 10)
 	table.SetColMinWidth(1, 15)
 	table.SetColMinWidth(2, 10)
@@ -131,19 +142,23 @@ func (r *Reporter) render(plots []*plot.Plot) {
 			pending++
 		case plot.StatePlotting:
 			plotting++
-			rows = append(rows, row{[]string{p.ID, StatePlotting, fmt.Sprintf("%d%%", p.PlottingProgress), "N/A"}, plottingColour})
+			rows = append(rows, row{[]string{p.ID, StatePlotting, p.GetPlottingProgress(), "N/A"}, plottingColour})
 		case plot.StatePublished:
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
-				rows = append(rows, row{[]string{p.ID, StateDownloadPending, "", "N/A"}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateDownloadPending, "N/A", "N/A"}, publishedColour})
+			case plot.DownloadStateReady:
+				rows = append(rows, row{[]string{p.ID, StateDownloadReady, "N/A", "N/A"}, publishedColour})
+			case plot.DownloadStatePreparing:
+				rows = append(rows, row{[]string{p.ID, StateDownloadPreparing, "N/A", "N/A"}, publishedColour})
 			case plot.DownloadStateDownloading:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloading, fmt.Sprintf("%.2f%%", p.GetDownloadProgress()), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateDownloading, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			case plot.DownloadStateFailed:
-				rows = append(rows, row{[]string{p.ID, StateDownloadFailed, "", "N/A"}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateDownloadFailed, "N/A", "N/A"}, publishedColour})
 			case plot.DownloadStateDownloaded:
-				rows = append(rows, row{[]string{p.ID, StateDownloaded, fmt.Sprintf("%.2f%%", p.GetDownloadProgress()), formatDownloadSpeed(p.GetDownloadSpeed())}, publishedColour})
-			case plot.DownloadStateVadidatingChunk:
+				rows = append(rows, row{[]string{p.ID, StateDownloaded, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
+			case plot.DownloadStateValidatingChunk:
 				rows = append(rows, row{[]string{p.ID, StateValidatingChunk, "N/A", "N/A"}, publishedColour})
 			default:
 				unknown++
@@ -172,31 +187,22 @@ func (r *Reporter) render(plots []*plot.Plot) {
 		table.Rich(r.data, []tablewriter.Colors{[]int{r.colour}})
 	}
 
-	cyan := color.New(color.FgCyan)
-	yellow := color.New(color.FgYellow)
-	magenta := color.New(color.FgMagenta)
-	blue := color.New(color.FgBlue)
-	green := color.New(color.FgGreen)
+	printSectionTitle(r.w, "Summary")
 
-	printSectionTitle(out, "Summary")
+	cyan.Fprintf(r.w, "All plots: %d\n", len(plots))
+	yellow.Fprintf(r.w, "  * Pending plots: %d\n", pending)
+	magenta.Fprintf(r.w, "  * Expired plots: %d\n", expired)
+	magenta.Fprintf(r.w, "  * Cancelled plots: %d\n", cancelled)
+	blue.Fprintf(r.w, "  * Plotting: %d\n", plotting)
+	green.Fprintf(r.w, "  * Downloading: %d\n", downloading)
+	fmt.Fprint(r.w, "\n")
 
-	cyan.Fprintf(out, "All plots: %d\n", len(plots))
-	yellow.Fprintf(out, "  * Pending plots: %d\n", pending)
-	magenta.Fprintf(out, "  * Expired plots: %d\n", expired)
-	magenta.Fprintf(out, "  * Cancelled plots: %d\n", cancelled)
-	blue.Fprintf(out, "  * Plotting: %d\n", plotting)
-	green.Fprintf(out, "  * Downloading: %d\n", downloading)
-	out.WriteString("\n")
-
-	printSectionTitle(out, "Downloading and plotting")
+	r.w.Newline()
+	printSectionTitle(r.w, "Downloading and plotting")
 	table.Render()
 
-	out.WriteString("\n")
-	printSectionTitle(out, "Logs")
-	for _, line := range r.pendingLogLines {
-		out.WriteString(line)
-	}
-	out.WriteString("\n")
-	out.WriteString(`Press "q + ENTER" or "Ctrl+C" to exit. Downloads will resume if you restart.`)
-	fmt.Println(out.String())
+	r.w.Newline()
+	fmt.Fprint(r.w, "\n")
+	fmt.Fprint(r.w, "Press \"q + ENTER\" or \"Ctrl+C\" to exit. Downloads will resume if you restart.\n")
+	r.w.Flush()
 }
