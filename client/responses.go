@@ -3,7 +3,7 @@ package client
 //TODO: autogenerate from OpenAPI schema (https://chiafactory.com/static/openapi-schema.yml)
 
 type orderResponse struct {
-	ID string
+	ID string `json:"id"`
 }
 
 type getOrdersResponse struct {
@@ -11,10 +11,10 @@ type getOrdersResponse struct {
 }
 
 type plotResponse struct {
-	ID       string
-	Progress int
-	URL      string
-	State    string
+	ID       string `json:"id"`
+	Progress int    `json:"progress"`
+	URL      string `json:"url"`
+	State    string `json:"state"`
 }
 
 type getPlotsForOrderIDResponse struct {
