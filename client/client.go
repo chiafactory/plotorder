@@ -11,6 +11,8 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -102,6 +104,20 @@ func (c *Client) DeletePlot(ctx context.Context, ID string) error {
 	return json.Unmarshal(response, &r)
 }
 
+func (c *Client) GetHashesForPlot(ctx context.Context, plotID string) ([]string, error) {
+	response, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plots/%s/hashes/", plotID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	r := []string{}
+	err = json.Unmarshal(response, &r)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 //GetPlotsForOrderID all the plots for the order with given orderID
 func (c *Client) GetPlotsForOrderID(ctx context.Context, orderID string) ([]*plot.Plot, error) {
 	response, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plot_orders/%s", orderID), nil)
@@ -135,10 +151,14 @@ func (c *Client) apiRequest(ctx context.Context, method string, endpoint string,
 	if body != nil {
 		requestBody = bytes.NewReader(body)
 	}
+
+	url := fmt.Sprintf("%s/%s", c.apiURL, endpoint)
+	logrus.Debugf("making %s request to %s", method, url)
+
 	req, err := http.NewRequestWithContext(
 		ctx,
 		method,
-		fmt.Sprintf("%s/%s", c.apiURL, endpoint),
+		url,
 		requestBody,
 	)
 
@@ -157,7 +177,7 @@ func (c *Client) apiRequest(ctx context.Context, method string, endpoint string,
 	}
 
 	if res.StatusCode != http.StatusOK {
-		return nil, errors.New("invalid response received")
+		return nil, fmt.Errorf("invalid response received (%s)", res.Status)
 	}
 
 	responseBody, err := ioutil.ReadAll(res.Body)
