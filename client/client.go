@@ -88,6 +88,8 @@ func (c *Client) DeletePlot(ctx context.Context, ID string) error {
 	req := updatePlotRequest{
 		ID:    ID,
 		State: string(plot.StateExpired),
+		//TODO: this is 'downloaded' state. Is it needed?
+		DownloadState: 2,
 	}
 
 	reqBytes, err := json.Marshal(req)
@@ -95,7 +97,7 @@ func (c *Client) DeletePlot(ctx context.Context, ID string) error {
 		return err
 	}
 
-	response, err := c.apiRequest(ctx, http.MethodPut, fmt.Sprintf("plots/%s", ID), reqBytes)
+	response, err := c.apiRequest(ctx, http.MethodPut, fmt.Sprintf("plots/%s/", ID), reqBytes)
 	if err != nil {
 		return err
 	}
