@@ -127,32 +127,37 @@ func (proc *Processor) process(ctx context.Context) error {
 		var (
 			newP = p
 			err  error
+			now  = time.Now()
 		)
-		if s.Before(time.Now()) {
+		if s.Before(now) {
 			newP, err = proc.client.GetPlot(ctx, p.ID)
 			if err != nil {
 				return err
 			}
 		}
 
-		// and update state and progres if necessary
+		// update state and progres if necessary
 		if p.State != newP.State {
 			p.UpdateState(newP.State)
-		} else if p.PlottingProgress != newP.PlottingProgress {
+		}
+
+		if p.PlottingProgress != newP.PlottingProgress {
 			p.UpdatePlottingProgress(newP.PlottingProgress)
 		}
 
 		// by default we'll retrieve the plots from the API every 10 minutes
-		proc.schedule[p.ID] = s.Add(10 * time.Minute)
+		proc.schedule[p.ID] = now.Add(10 * time.Minute)
 
 		switch p.State {
 		case plot.StatePending:
 			log.Debugf("%s has not started plotting", p)
 		case plot.StatePlotting:
+			proc.schedule[p.ID] = now.Add(1 * time.Minute)
 			log.Debugf("%s is currently being plotted (progress=%d%%)", p, newP.PlottingProgress)
 		case plot.StatePublished:
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
+				proc.schedule[p.ID] = now.Add(2 * time.Second)
 				plotDir, err := proc.getPlotDownloadDirectory(p)
 				if err != nil {
 					return err
@@ -163,6 +168,7 @@ func (proc *Processor) process(ctx context.Context) error {
 			case plot.DownloadStatePreparing:
 				log.Debugf("%s is being prepared for download", p)
 			case plot.DownloadStateReady:
+				proc.schedule[p.ID] = now.Add(10 * time.Minute)
 				proc.downloads.Add(1)
 				go func() {
 					defer proc.downloads.Done()
@@ -187,6 +193,8 @@ func (proc *Processor) process(ctx context.Context) error {
 		default:
 			return fmt.Errorf("unexpected state (%s)", p.State)
 		}
+
+		log.Debugf("%s will be checked again at %s", p, proc.schedule[p.ID])
 	}
 
 	proc.reporter.render(proc.plots)
