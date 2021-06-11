@@ -122,7 +122,7 @@ var (
 				io.MultiWriter(
 					&lumberjack.Logger{
 						Filename: path.Join(logsDir, "plotorder.log"),
-						MaxSize:  512,
+						MaxSize:  256,
 						MaxAge:   30,
 						Compress: true,
 					},
