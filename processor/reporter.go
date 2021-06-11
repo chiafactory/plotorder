@@ -141,20 +141,25 @@ func (r *Reporter) render(plots []*plot.Plot) {
 		case plot.StatePublished:
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
+				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloadPending, "N/A", "N/A"}, publishedColour})
 			case plot.DownloadStateReady:
+				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloadReady, "N/A", "N/A"}, publishedColour})
 			case plot.DownloadStatePreparing:
+				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloadPreparing, "N/A", "N/A"}, publishedColour})
 			case plot.DownloadStateDownloading:
 				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloading, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			case plot.DownloadStateFailed:
+				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloadFailed, "N/A", "N/A"}, publishedColour})
+			case plot.DownloadStateValidatingChunk:
+				downloading++
+				rows = append(rows, row{[]string{p.ID, StateValidatingChunk, "N/A", "N/A"}, publishedColour})
 			case plot.DownloadStateDownloaded:
 				rows = append(rows, row{[]string{p.ID, StateDownloaded, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
-			case plot.DownloadStateValidatingChunk:
-				rows = append(rows, row{[]string{p.ID, StateValidatingChunk, "N/A", "N/A"}, publishedColour})
 			default:
 				unknown++
 			}
