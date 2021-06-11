@@ -234,8 +234,6 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 	defer func() {
 		if err != nil {
 			p.updateDownloadState(DownloadStateFailed)
-		} else {
-			p.updateDownloadState(DownloadStateReady)
 		}
 	}()
 
@@ -276,6 +274,7 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 
 		// if the file has been fully downloaded, stop here
 		if fInfo.Size() == fileSize {
+			logrus.Infof("%s is already downloaded", p)
 			p.updateDownloadState(DownloadStateDownloaded)
 			return nil
 		}
@@ -298,6 +297,7 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 
 	// nothing to do if the file is empty
 	if downloaded == 0 {
+		p.updateDownloadState(DownloadStateReady)
 		return
 	}
 
@@ -335,7 +335,14 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 	}
 
 	p.downloadedBytes = downloaded
+	p.updateDownloadState(DownloadStateReady)
+	return nil
+}
 
+func (p *Plot) RetryDownload(ctx context.Context) (err error) {
+	// TODO: add some logic around retries
+	logrus.Infof("%s retrying download after error", p)
+	p.updateDownloadState(DownloadStateReady)
 	return nil
 }
 
@@ -375,7 +382,8 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 
 	p.updateDownloadState(DownloadStateDownloading)
 
-	req, err := http.NewRequest(http.MethodGet, p.DownloadURL, nil)
+	var req *http.Request
+	req, err = http.NewRequest(http.MethodGet, p.DownloadURL, nil)
 	if err != nil {
 		return
 	}
@@ -389,7 +397,8 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 		log.Infof("%s starting download from %s into %s", p, p.DownloadURL, p.f.Name())
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	var resp *http.Response
+	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		err = errors.Wrap(err, "error while making the HTTP request to download the file")
 		return
@@ -402,21 +411,23 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 
 	var (
 		chunkSize  = int64(8192)
-		done       = make(chan struct{})
+		done       = make(chan error)
 		prevChunkN = p.downloadedBytes / hashChunkSize
 		currChunkN = prevChunkN
 	)
 
 	go func() {
-		chunk := make([]byte, chunkSize)
 
-		// make sure we exactly write `chunkSize` bytes to disk every time
-		filebuff := bufio.NewWriterSize(p.f, int(chunkSize))
+		var (
+			chunk    = make([]byte, chunkSize)
+			filebuff = bufio.NewWriterSize(p.f, int(chunkSize))
+			err      error
+		)
 
 		defer func() {
 			resp.Body.Close()
 			filebuff.Flush()
-			done <- struct{}{}
+			done <- err
 		}()
 
 		for {
@@ -447,7 +458,11 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 				// upload download state while we're validating
 				p.updateDownloadState(DownloadStateValidatingChunk)
 
-				valid, start, err := p.validateChunk(prevChunkN)
+				var (
+					valid bool
+					start int64
+				)
+				valid, start, err = p.validateChunk(prevChunkN)
 				if err != nil {
 					return
 				}
@@ -485,6 +500,7 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 			}
 
 			if readErr != nil {
+				err = readErr
 				logrus.Errorf("there was an error reading the plot file from the server (%s)", err.Error())
 				return
 			}
@@ -499,15 +515,14 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 			case <-done:
 				return
 			case <-ctx.Done():
-				done <- struct{}{}
 				return
 			case <-ticker.C:
 				p.recordDownloadedBytes()
 			}
 		}
 	}()
-	<-done
-	return nil
+	err = <-done
+	return err
 }
 
 func (p *Plot) String() string {

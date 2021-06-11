@@ -179,8 +179,8 @@ func (proc *Processor) process(ctx context.Context) error {
 			case plot.DownloadStateDownloading:
 				log.Debugf("%s is still being downloaded", p)
 			case plot.DownloadStateFailed:
-				log.Debugf("%s download has failed", p)
-				delete(proc.schedule, p.ID)
+				log.Debugf("%s download has failed. We'll retry it", p)
+				p.RetryDownload(ctx)
 			case plot.DownloadStateDownloaded:
 				proc.client.DeletePlot(ctx, p.ID)
 				delete(proc.schedule, p.ID)
