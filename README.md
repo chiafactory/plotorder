@@ -57,11 +57,22 @@ Below is a list of all the avaialable arguments.
 | --api-key              | yes      | your personal https://chiafactory.com API key     | N/A                            |
 | --order-id             | yes      | the id of the order you want to process plots for | N/A                            |
 | --api-url              | no       | the URL of Chiafactory's API                      | https://chiafactory.com/api/v1 |
-| --plot-dir             | no       | the path where to store downloaded plots          | `plots/` in current directory  |
-| --plot-check-frequency | no       | the time between checks on an order's plots       | `2s`                           |
+| --logs-dir             | no       | the directory to store logs                       | `plots/` in working directory  |
+| --plot-dir             | no       | the directory to download plots (multiple allowed)| `logs/` in working directory   |
+| --plot-check-frequency | no       | the time between checks on an order's plots       | `5s`                           |
 | --config               | no       | config file to use                                | N/A                            |
 | --verbose              | no       | enables verbose logging (DEBUG level)             | `false`                        |
 
 A sample config file is included in this repo (`config.example.ini`). You can use the config file instead of providing the CLI arguments above. CLI arguments will override matching config file values (except for `order-id`, `config` and `verbose` )
 
-You can interrupt the download process at any point in time and `plotorder` will gracefully exit. You can later on resume downloading by running `plotorder` with the same arguments and/or config file (specially, the same `order-id` and `plot-dir`).
+You can interrupt the download process at any point in time and `plotorder` will shutdown gracefully. You can then resume downloading by running `plotorder` with the same arguments and/or config file (specially, the same `order-id` and `plot-dir`).
+
+### Support for multiple download locations
+You can provide `--plot-dir` multiple times (for instance, if you have multiple drives mounted). `plotorder` will try to fill all the provided directories with the downloaded plot files. If there's not enough space in a given directory, `plotorder` will skip to the next, until it finds a valid one.
+
+There's an exception to this rule though: if a plot file has been partially downloaded to a specific directory, `plotorder` will always choose the same directory, so the file download resumes.
+
+If there's not enough space to download all the plots (the published ones), `plotorder` will exit.
+
+### Logging
+By default, logs are stored under `plots/` in the working directory. You can specify a different path using `--logs-dir`. Logs will be auto-rotated when they reach 256MB. Old log files are compressed and retained for 30 days.
