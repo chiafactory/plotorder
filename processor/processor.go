@@ -182,7 +182,12 @@ func (proc *Processor) process(ctx context.Context) error {
 				log.Debugf("%s download has failed. We'll retry it", p)
 				p.RetryDownload(ctx)
 			case plot.DownloadStateDownloaded:
-				proc.client.DeletePlot(ctx, p.ID)
+				log.Debugf("%s download finished, marking it as expired", p)
+				dp, err := proc.client.DeletePlot(ctx, p.ID)
+				if err != nil {
+					return err
+				}
+				p.UpdateState(dp.State)
 			case plot.DownloadStateValidatingChunk:
 				log.Debugf("%s is validating the latest chunk", p)
 			default:

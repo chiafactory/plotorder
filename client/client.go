@@ -84,7 +84,7 @@ func (c *Client) GetPlot(ctx context.Context, ID string) (*plot.Plot, error) {
 	}, nil
 }
 
-func (c *Client) DeletePlot(ctx context.Context, ID string) error {
+func (c *Client) DeletePlot(ctx context.Context, ID string) (*plot.Plot, error) {
 	req := updatePlotRequest{
 		ID:    ID,
 		State: string(plot.StateExpired),
@@ -94,16 +94,27 @@ func (c *Client) DeletePlot(ctx context.Context, ID string) error {
 
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	response, err := c.apiRequest(ctx, http.MethodPut, fmt.Sprintf("plots/%s/", ID), reqBytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var r plotResponse
-	return json.Unmarshal(response, &r)
+	err = json.Unmarshal(response, &r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &plot.Plot{
+		ID:               r.ID,
+		State:            plot.State(r.State),
+		DownloadState:    plot.DownloadStateNotStarted,
+		DownloadURL:      r.URL,
+		PlottingProgress: r.Progress,
+	}, nil
 }
 
 func (c *Client) GetHashesForPlot(ctx context.Context, plotID string) ([]string, error) {
