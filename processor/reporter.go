@@ -30,7 +30,7 @@ const (
 	StateDownloading       = "Downloading"
 	StateDownloadFailed    = "Download failed"
 	StateDownloaded        = "Downloaded"
-	StateValidatingChunk   = "Validating"
+	StateValidatingChunk   = "Validating (resumes shortly)"
 	StateCancelled         = "Cancelled"
 	StateExpired           = "Expired"
 	StateUnknown           = "<unknown>"
@@ -65,21 +65,24 @@ func printSectionTitle(writer io.Writer, title string) {
 	fmt.Fprintf(writer, "\n- %s\n\n", title)
 }
 
-func NewReporter() *Reporter {
-	w := uilive.New()
-	w.RefreshInterval = 500 * time.Millisecond
-	return &Reporter{
-		w: w,
-	}
-}
-
 type row struct {
 	data   []string
 	colour int
 }
 
+func NewReporter() *Reporter {
+	w := uilive.New()
+	w.RefreshInterval = 500 * time.Millisecond
+	s := time.Now()
+	return &Reporter{
+		w: w,
+		s: s,
+	}
+}
+
 type Reporter struct {
 	w             *uilive.Writer
+	s             time.Time
 	disableStdout bool
 }
 
@@ -104,6 +107,9 @@ func (r *Reporter) render(plots []*plot.Plot) {
 	if !r.disableStdout {
 		r.disableStdout = true
 	}
+
+	now := time.Now()
+	elapsed := now.Sub(r.s).Round(time.Second)
 
 	tableOrder := map[string]int{}
 	for idx, status := range statesForTableOrder {
@@ -137,27 +143,27 @@ func (r *Reporter) render(plots []*plot.Plot) {
 			pending++
 		case plot.StatePlotting:
 			plotting++
-			rows = append(rows, row{[]string{p.ID, StatePlotting, p.GetPlottingProgress(), "N/A"}, plottingColour})
+			rows = append(rows, row{[]string{p.ID, StatePlotting, p.GetPlottingProgress(), "-"}, plottingColour})
 		case plot.StatePublished:
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloadPending, "N/A", "N/A"}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateDownloadPending, "-", "-"}, publishedColour})
 			case plot.DownloadStateReady:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloadReady, "N/A", "N/A"}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateDownloadReady, "-", "-"}, publishedColour})
 			case plot.DownloadStatePreparing:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloadPreparing, "N/A", "N/A"}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateDownloadPreparing, "-", "-"}, publishedColour})
 			case plot.DownloadStateDownloading:
 				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloading, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			case plot.DownloadStateFailed:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloadFailed, "N/A", "N/A"}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateDownloadFailed, "-", "-"}, publishedColour})
 			case plot.DownloadStateValidatingChunk:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateValidatingChunk, "N/A", "N/A"}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateValidatingChunk, "-", "-"}, publishedColour})
 			case plot.DownloadStateDownloaded:
 				rows = append(rows, row{[]string{p.ID, StateDownloaded, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			default:
@@ -180,6 +186,10 @@ func (r *Reporter) render(plots []*plot.Plot) {
 		aidx := tableOrder[a]
 		bidx := tableOrder[b]
 
+		if aidx == bidx {
+			return rows[i].data[0] < rows[j].data[0]
+		}
+
 		return aidx < bidx
 	})
 
@@ -188,14 +198,15 @@ func (r *Reporter) render(plots []*plot.Plot) {
 	}
 
 	printSectionTitle(r.w, "Summary")
+	fmt.Fprintf(r.w, "* Elapsed: %s\n", elapsed)
+	r.w.Newline()
 
-	cyan.Fprintf(r.w, "All plots: %d\n", len(plots))
-	yellow.Fprintf(r.w, "  * Pending plots: %d\n", pending)
-	magenta.Fprintf(r.w, "  * Expired plots: %d\n", expired)
-	magenta.Fprintf(r.w, "  * Cancelled plots: %d\n", cancelled)
+	fmt.Fprintf(r.w, "* Total plots: %d\n", len(plots))
+	yellow.Fprintf(r.w, "  * Pending: %d\n", pending)
+	magenta.Fprintf(r.w, "  * Expired: %d\n", expired)
+	magenta.Fprintf(r.w, "  * Cancelled: %d\n", cancelled)
 	blue.Fprintf(r.w, "  * Plotting: %d\n", plotting)
 	green.Fprintf(r.w, "  * Downloading: %d\n", downloading)
-	fmt.Fprint(r.w, "\n")
 
 	r.w.Newline()
 	printSectionTitle(r.w, "Downloading and plotting")
