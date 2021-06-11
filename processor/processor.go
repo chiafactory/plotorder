@@ -183,7 +183,6 @@ func (proc *Processor) process(ctx context.Context) error {
 				p.RetryDownload(ctx)
 			case plot.DownloadStateDownloaded:
 				proc.client.DeletePlot(ctx, p.ID)
-				delete(proc.schedule, p.ID)
 			case plot.DownloadStateValidatingChunk:
 				log.Debugf("%s is validating the latest chunk", p)
 			default:
@@ -234,7 +233,7 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 			}
 		}
 
-		p.FileHashes = hashList
+		p.FileChunkHashes = hashList
 		proc.schedule[p.ID] = time.Now()
 	}
 
