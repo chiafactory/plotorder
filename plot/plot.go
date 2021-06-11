@@ -69,10 +69,10 @@ type Plot struct {
 	// and it gets updated as soon as the download starts
 	DownloadState DownloadState
 
-	// FileHashes is a list of hashes we can use to validate the chunks we download. These come from
+	// FileChunkHashes is a list of hashes we can use to validate the chunks we download. These come from
 	// the API and they **must** be calculated every `hashChunkSize` bytes (the last chunk is the only
 	// one that can be smaller)
-	FileHashes []string
+	FileChunkHashes []string
 
 	downloadHistory []downloadHistoryRecord
 	downloadSize    int64
@@ -117,7 +117,7 @@ func (p *Plot) UpdatePlottingProgress(progress int) {
 
 func (p *Plot) GetDownloadSpeed() string {
 	if len(p.downloadHistory) < 2 {
-		return "N/A"
+		return "Starting"
 	}
 	first := p.downloadHistory[0]
 	last := p.downloadHistory[len(p.downloadHistory)-1]
@@ -125,7 +125,7 @@ func (p *Plot) GetDownloadSpeed() string {
 
 	// this will happen after a failed chunk validation
 	if bytesPerSecond < 0 {
-		return "N/A"
+		return "-"
 	}
 
 	return fmt.Sprintf("%s/s", humanize.Bytes(uint64(bytesPerSecond)))
@@ -133,15 +133,15 @@ func (p *Plot) GetDownloadSpeed() string {
 
 func (p *Plot) GetDownloadProgress() string {
 	if p.State != StatePublished {
-		return "N/A"
-	}
-
-	if len(p.downloadHistory) < 1 {
-		return "N/A"
+		return "-"
 	}
 
 	if p.downloadSize == 0 {
-		return "N/A"
+		return "-"
+	}
+
+	if len(p.downloadHistory) < 1 {
+		return "Starting"
 	}
 
 	last := p.downloadHistory[len(p.downloadHistory)-1]
@@ -150,15 +150,23 @@ func (p *Plot) GetDownloadProgress() string {
 
 func (p *Plot) GetPlottingProgress() string {
 	if p.State != StatePlotting {
-		return "N/A"
+		return "-"
 	}
 	return fmt.Sprintf("%d%%", p.PlottingProgress)
 }
 
-func (p *Plot) validateChunk(number int64) (valid bool, start int64, err error) {
+// validateAndTruncate will make sure that the chunk identified by the given `number` is valid.
+// This is done by calculating a hash of the chunk and comparing it against the right hash in
+// the plot (`p.FileChunkHashes`). Chunks are 0-indexed.
+//
+// If the chunk is invalid, the file will be truncated down to the start of the invalid
+// chunk, so that the download resumes from that position (that is, the invalid chunk gets
+// re-downloadeds)
+func (p *Plot) validateAndTruncate(number int64) (valid bool, err error) {
+
 	// always align to a multiple of `hashChunkSize` bytes
 	stop := (number + 1) * hashChunkSize
-	start = stop - hashChunkSize
+	start := stop - hashChunkSize
 
 	// and now adjust `stop` to limit it to the total plot file size
 	if stop > p.downloadSize {
@@ -183,19 +191,32 @@ func (p *Plot) validateChunk(number int64) (valid bool, start int64, err error) 
 	}
 
 	// chunks are 0-indexed
-	for idx := range p.FileHashes {
+	for idx := range p.FileChunkHashes {
 		if idx == int(number) {
-			if p.FileHashes[idx] == chunkHash {
-				logrus.Infof("%s chunk is valid (calculated=%s, expected=%s)", p, chunkHash, p.FileHashes[idx])
+			if p.FileChunkHashes[idx] == chunkHash {
+				logrus.Infof("%s chunk is valid (calculated=%s, expected=%s)", p, chunkHash, p.FileChunkHashes[idx])
 				valid = true
 			} else {
-				logrus.Errorf("%s chunk is invalid (calculated=%s, expected=%s)", p, chunkHash, p.FileHashes[idx])
+				logrus.Errorf("%s chunk is invalid (calculated=%s, expected=%s)", p, chunkHash, p.FileChunkHashes[idx])
+
+				logrus.Infof("%s is being truncated to download the last chunk from position %d", p, start)
+				err = p.f.Truncate(start)
+				if err != nil {
+					return
+				}
+
+				_, err = p.f.Seek(0, io.SeekEnd)
+				if err != nil {
+					return
+				}
+
+				p.downloadedBytes = start
 			}
 			break
 		}
 	}
 
-	return valid, start, nil
+	return valid, nil
 }
 
 func (p *Plot) GetDownloadFilename() (filepath string, err error) {
@@ -253,22 +274,27 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 	p.updateDownloadState(DownloadStatePreparing)
 
 	// figure out the size of the file
-	fileSize, err := p.GetDownloadSize()
+	var fileSize int64
+	fileSize, err = p.GetDownloadSize()
 	if err != nil {
 		return
 	}
 	p.downloadSize = fileSize
 
-	filename, err := p.GetDownloadFilename()
+	var fileName string
+	fileName, err = p.GetDownloadFilename()
 	if err != nil {
 		return err
 	}
-	filePath := path.Join(plotDir, filename)
+	filePath := path.Join(plotDir, fileName)
 
 	// we'll create a new file if it does not exist or append to
 	// it if it does
-	var openFlags int
-	fInfo, err := os.Stat(filePath)
+	var (
+		openFlags int
+		fInfo     os.FileInfo
+	)
+	fInfo, err = os.Stat(filePath)
 	if err == nil {
 		openFlags = os.O_RDWR | os.O_APPEND
 
@@ -276,24 +302,28 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 		if fInfo.Size() == fileSize {
 			logrus.Infof("%s is already downloaded", p)
 			p.updateDownloadState(DownloadStateDownloaded)
-			return nil
+			return
 		}
 	} else {
 		openFlags = os.O_CREATE | os.O_EXCL | os.O_RDWR
 	}
 
-	file, err := os.OpenFile(filePath, openFlags, os.ModePerm)
+	// save file handle in plot
+	var file *os.File
+	file, err = os.OpenFile(filePath, openFlags, os.ModePerm)
 	if err != nil {
 		err = errors.Wrap(err, "could not open the file for writing")
 		return
 	}
 	p.f = file
 
-	downloaded, err := file.Seek(0, io.SeekEnd)
+	var downloaded int64
+	downloaded, err = file.Seek(0, io.SeekEnd)
 	if err != nil {
 		err = errors.Wrap(err, "could not seek the file")
 		return
 	}
+	p.downloadedBytes = downloaded
 
 	// nothing to do if the file is empty
 	if downloaded == 0 {
@@ -301,42 +331,26 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 		return
 	}
 
-	// now we'll validate the existing file
-	var (
-		chunkNumber = int64(0)
-		remaining   = downloaded
-	)
-
-	// by using this condition this we avoid checking incomplete chunks when
-	// we prepare the download (as it's partial content)
-	for remaining >= hashChunkSize {
-		valid, start, err := p.validateChunk(chunkNumber)
-		if err != nil {
-			logrus.Errorf("there was an error while trying to load the last chunk for validation (%s)", err.Error())
-			return err
-		}
-
-		if !valid {
-			logrus.Infof("%s truncating to %d", p, start)
-			err = p.f.Truncate(start)
-			if err != nil {
-				return err
-			}
-			_, err = p.f.Seek(0, io.SeekEnd)
-			if err != nil {
-				return err
-			}
-			downloaded = start
-			break
-		}
-
-		remaining -= hashChunkSize
-		chunkNumber++
+	// or if we have not downloaded any full chunk yet
+	if downloaded < hashChunkSize {
+		p.updateDownloadState(DownloadStateReady)
+		return
 	}
 
-	p.downloadedBytes = downloaded
+	// otherwise, find the last **full** chunk
+	chunkNumber := (downloaded / hashChunkSize) - 1
+
+	p.updateDownloadState(DownloadStateValidatingChunk)
+
+	// and make sure it's valid
+	_, err = p.validateAndTruncate(chunkNumber)
+	if err != nil {
+		logrus.Errorf("there was an error while trying to load the last chunk for validation (%s)", err.Error())
+		return
+	}
+
 	p.updateDownloadState(DownloadStateReady)
-	return nil
+	return
 }
 
 func (p *Plot) RetryDownload(ctx context.Context) (err error) {
@@ -458,34 +472,22 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 				// upload download state while we're validating
 				p.updateDownloadState(DownloadStateValidatingChunk)
 
-				var (
-					valid bool
-					start int64
-				)
-				valid, start, err = p.validateChunk(prevChunkN)
+				var valid bool
+				valid, err = p.validateAndTruncate(prevChunkN)
 				if err != nil {
+					return
+				}
+
+				// if the chunk is not valid, roll-back to 'ready' so the
+				// processor schedules a new download (which will start
+				// from the right position: the start of the invalid chunk)
+				if !valid {
+					p.updateDownloadState(DownloadStateReady)
 					return
 				}
 
 				// update previous chunk number
 				prevChunkN = currChunkN
-
-				// if the chunk is not valid, truncate the file (down to the end of the last
-				// valid chunk)
-				if !valid {
-					logrus.Infof("%s truncating to %d", p, start)
-					err = p.f.Truncate(start)
-					if err != nil {
-						return
-					}
-					_, err = p.f.Seek(0, io.SeekEnd)
-					if err != nil {
-						return
-					}
-					p.downloadedBytes = start
-					needsRedownloading = true
-					return
-				}
 
 				// reset download state
 				p.updateDownloadState(DownloadStateDownloading)
