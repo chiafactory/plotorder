@@ -156,8 +156,14 @@ func (p *Plot) GetPlottingProgress() string {
 }
 
 func (p *Plot) validateChunk(number int64) (valid bool, start int64, err error) {
-	stop := number * hashChunkSize
+	// always align to a multiple of `hashChunkSize` bytes
+	stop := (number + 1) * hashChunkSize
 	start = stop - hashChunkSize
+
+	// and now adjust `stop` to limit it to the total plot file size
+	if stop > p.downloadSize {
+		stop = p.downloadSize
+	}
 
 	logrus.Infof("%s is validating chunk %d (%d -> %d)", p, number, start, stop)
 
@@ -167,7 +173,8 @@ func (p *Plot) validateChunk(number int64) (valid bool, start int64, err error) 
 		return
 	}
 
-	// calculate the hash of the chunk
+	// `io.LimitReader` will stop when it reads `hashChunkSize` bytes OR when the underlying reader
+	// is exhausted, whatever happens first
 	var chunkHash string
 	chunkHash, err = calculateChunkHash(io.LimitReader(p.f, hashChunkSize))
 	if err != nil {
@@ -175,9 +182,9 @@ func (p *Plot) validateChunk(number int64) (valid bool, start int64, err error) 
 		return
 	}
 
-	// chunks are 1-indexed
+	// chunks are 0-indexed
 	for idx := range p.FileHashes {
-		if idx+1 == int(number) {
+		if idx == int(number) {
 			if p.FileHashes[idx] == chunkHash {
 				logrus.Infof("%s chunk is valid (calculated=%s, expected=%s)", p, chunkHash, p.FileHashes[idx])
 				valid = true
@@ -247,6 +254,13 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 
 	p.updateDownloadState(DownloadStatePreparing)
 
+	// figure out the size of the file
+	fileSize, err := p.GetDownloadSize()
+	if err != nil {
+		return
+	}
+	p.downloadSize = fileSize
+
 	filename, err := p.GetDownloadFilename()
 	if err != nil {
 		return err
@@ -256,9 +270,15 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 	// we'll create a new file if it does not exist or append to
 	// it if it does
 	var openFlags int
-	_, err = os.Stat(filePath)
+	fInfo, err := os.Stat(filePath)
 	if err == nil {
 		openFlags = os.O_RDWR | os.O_APPEND
+
+		// if the file has been fully downloaded, stop here
+		if fInfo.Size() == fileSize {
+			p.updateDownloadState(DownloadStateDownloaded)
+			return nil
+		}
 	} else {
 		openFlags = os.O_CREATE | os.O_EXCL | os.O_RDWR
 	}
@@ -269,13 +289,6 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 		return
 	}
 	p.f = file
-
-	// figure out the size of the file
-	fileSize, err := p.GetDownloadSize()
-	if err != nil {
-		return
-	}
-	p.downloadSize = fileSize
 
 	downloaded, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
@@ -290,7 +303,7 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 
 	// now we'll validate the existing file
 	var (
-		chunkNumber = int64(1)
+		chunkNumber = int64(0)
 		remaining   = downloaded
 	)
 
@@ -416,7 +429,7 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 			}
 
 			// otherwise, read a new chunk and write it to our file
-			r, err := resp.Body.Read(chunk)
+			r, readErr := resp.Body.Read(chunk)
 			if r > 0 {
 				p.downloadedBytes += int64(r)
 				currChunkN = p.downloadedBytes / hashChunkSize
@@ -425,7 +438,7 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 
 			// check hash if we just processed a chunk of `hashChunkSize` bytes OR
 			// if we're done downloading (to make sure we also validate the last chunk)
-			if currChunkN != prevChunkN || err == io.EOF {
+			if currChunkN != prevChunkN || readErr == io.EOF {
 				err = filebuff.Flush()
 				if err != nil {
 					return
@@ -434,13 +447,13 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 				// upload download state while we're validating
 				p.updateDownloadState(DownloadStateValidatingChunk)
 
-				// update previous chunk number
-				prevChunkN = currChunkN
-
-				valid, start, err := p.validateChunk(currChunkN)
+				valid, start, err := p.validateChunk(prevChunkN)
 				if err != nil {
 					return
 				}
+
+				// update previous chunk number
+				prevChunkN = currChunkN
 
 				// if the chunk is not valid, truncate the file (down to the end of the last
 				// valid chunk)
@@ -466,12 +479,12 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 				p.f.Seek(0, io.SeekEnd)
 			}
 
-			if err == io.EOF {
+			if readErr == io.EOF {
 				finished = true
 				break
 			}
 
-			if err != nil {
+			if readErr != nil {
 				logrus.Errorf("there was an error reading the plot file from the server (%s)", err.Error())
 				return
 			}
