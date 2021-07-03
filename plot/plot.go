@@ -542,7 +542,7 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 
 		var (
 			chunk    = make([]byte, chunkSize)
-			filebuff = bufio.NewWriterSize(p.f, 10*int(chunkSize))
+			filebuff = bufio.NewWriterSize(p.f, int(chunkSize))
 			err      error
 		)
 

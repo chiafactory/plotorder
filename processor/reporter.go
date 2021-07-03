@@ -33,31 +33,11 @@ const (
 	StateValidationFailed  = "Validation failed, re-downloading"
 	StateDownloaded        = "Downloaded"
 	StateLiveValidation    = "Downloading (and validating)"
-	StateUnableToStart     = "Something went wrong, please check the logs"
+	StateUnableToStart     = "Error, please check the logs"
 	StateCancelled         = "Cancelled"
 	StateExpired           = "Expired"
 	StateUnknown           = "<unknown>"
 )
-
-// the entries in the table will be sorted based on the 'State' column, following
-// the order in this slice
-var statesForTableOrder = []string{
-	StateDownloading,
-	StatePlotting,
-	StatePending,
-	StateDownloadPending,
-	StateDownloadPreparing,
-	StateLiveValidation,
-	StateInitialValidation,
-	StateDownloadReady,
-	StateDownloadFailed,
-	StateUnableToStart,
-	StateValidationFailed,
-	StateDownloaded,
-	StateExpired,
-	StateCancelled,
-	StateUnknown,
-}
 
 var (
 	cyan    = color.New(color.FgCyan)
@@ -72,8 +52,9 @@ func printSectionTitle(writer io.Writer, title string) {
 }
 
 type row struct {
-	data   []string
-	colour int
+	sortKey int
+	data    []string
+	colour  int
 }
 
 func NewReporter() *Reporter {
@@ -117,11 +98,6 @@ func (r *Reporter) render(plots []*plot.Plot) {
 	now := time.Now()
 	elapsed := now.Sub(r.s).Round(time.Second)
 
-	tableOrder := map[string]int{}
-	for idx, status := range statesForTableOrder {
-		tableOrder[status] = idx
-	}
-
 	rows := []row{}
 	table := tablewriter.NewWriter(r.w)
 	table.SetHeader([]string{"Plot", "State", "Progress", "Speed"})
@@ -129,7 +105,7 @@ func (r *Reporter) render(plots []*plot.Plot) {
 	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
 	table.SetCenterSeparator("+")
 	table.SetColMinWidth(0, 10)
-	table.SetColMinWidth(1, 15)
+	table.SetColMinWidth(1, 35)
 	table.SetColMinWidth(2, 10)
 	table.SetColMinWidth(3, 10)
 	table.SetColumnAlignment([]int{tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER})
@@ -149,38 +125,38 @@ func (r *Reporter) render(plots []*plot.Plot) {
 			pending++
 		case plot.StatePlotting:
 			plotting++
-			rows = append(rows, row{[]string{p.ID, StatePlotting, p.GetPlottingProgress(), "-"}, plottingColour})
+			rows = append(rows, row{1, []string{p.ID, StatePlotting, p.GetPlottingProgress(), "-"}, plottingColour})
 		case plot.StatePublished:
 			switch p.DownloadState {
 			case plot.DownloadStateNotStarted:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloadPending, "-", "-"}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateDownloadPending, "-", "-"}, publishedColour})
 			case plot.DownloadStateReady:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloadReady, "-", "-"}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateDownloadReady, "-", "-"}, publishedColour})
 			case plot.DownloadStatePreparing:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloadPreparing, "-", "-"}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateDownloadPreparing, "-", "-"}, publishedColour})
 			case plot.DownloadStateInitialValidation:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateInitialValidation, "-", "-"}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateInitialValidation, "-", "-"}, publishedColour})
 			case plot.DownloadStateDownloading:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloading, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateDownloading, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			case plot.DownloadStateFailed:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateDownloadFailed, "-", "-"}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateDownloadFailed, "-", "-"}, publishedColour})
 			case plot.DownloadStateFailedValidation:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateValidationFailed, "-", "-"}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateValidationFailed, "-", "-"}, publishedColour})
 			case plot.DownloadStateLiveValidation:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateLiveValidation, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateLiveValidation, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			case plot.DownloadStateUnableToStart:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateUnableToStart, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateUnableToStart, "-", "-"}, publishedColour})
 			case plot.DownloadStateDownloaded:
-				rows = append(rows, row{[]string{p.ID, StateDownloaded, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, StateDownloaded, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			default:
 				unknown++
 			}
@@ -195,17 +171,14 @@ func (r *Reporter) render(plots []*plot.Plot) {
 
 	// sort the table rows
 	sort.Slice(rows, func(i, j int) bool {
-		a := rows[i].data[1]
-		b := rows[j].data[1]
+		a := rows[i].sortKey
+		b := rows[j].sortKey
 
-		aidx := tableOrder[a]
-		bidx := tableOrder[b]
-
-		if aidx == bidx {
+		if a == b {
 			return rows[i].data[0] < rows[j].data[0]
 		}
 
-		return aidx < bidx
+		return a < b
 	})
 
 	for _, r := range rows {

@@ -79,7 +79,7 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 		available -= uint64(proc.claimedBytesByDrive[drive])
 
 		if remaining > int64(available) {
-			log.Errorf("there is not enough space in %s to resume the download for %s (%s left to download)", plotDir, p.ID, humanize.Bytes(uint64(remaining)))
+			log.Errorf("%s there is not enough space in %s to resume the download for %s (%s left to download)", proc, plotDir, p.ID, humanize.Bytes(uint64(remaining)))
 			return "", ErrNotEnoughSpace
 		}
 
@@ -99,7 +99,7 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 
 		// if there's no room in this directory (drive), continue
 		if uint64(plotSize) > available {
-			log.Warnf("%s does not have enough space to download %s (available=%s)", plotDir, p.ID, humanize.Bytes(available))
+			log.Warnf("%s %s does not have enough space to download %s (available=%s)", proc, plotDir, p.ID, humanize.Bytes(available))
 			continue
 		}
 
@@ -107,7 +107,7 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 		return plotDir, nil
 	}
 
-	log.Errorf("none of the provided directories has enough space to download %s", p.ID)
+	log.Errorf("%s none of the provided directories has enough space to download %s", proc, p.ID)
 	return "", ErrNotEnoughSpace
 }
 
@@ -235,7 +235,7 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 				log.Infof("%s initialising", p)
 				p.InitialiseDownload()
 			default:
-				return false, fmt.Errorf("unexpected download state (%s)", p.DownloadState)
+				return false, fmt.Errorf("%s unexpected download state (%s)", proc, p.DownloadState)
 			}
 		case plot.StateCancelled, plot.StateExpired:
 			expiredOrCancelled++
@@ -280,7 +280,7 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 		proc.schedule[p.ID] = time.Now()
 	}
 
-	log.Infof("%s has %d plots", order, len(plots))
+	log.Infof("%s %s has %d plots", proc, order, len(plots))
 
 	var (
 		done     = make(chan struct{})
@@ -319,6 +319,10 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 	}()
 	<-done
 	return err
+}
+
+func (proc *Processor) String() string {
+	return "[processor]"
 }
 
 func NewProcessor(c *client.Client, r *Reporter, plotDirs []string, frequency time.Duration) (*Processor, error) {
