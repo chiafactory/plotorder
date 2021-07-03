@@ -26,11 +26,14 @@ const (
 	StatePlotting          = "Plotting"
 	StateDownloadPending   = "Download pending"
 	StateDownloadPreparing = "Preparing download"
+	StateInitialValidation = "Validating before resuming"
 	StateDownloadReady     = "Ready to download"
 	StateDownloading       = "Downloading"
 	StateDownloadFailed    = "Download failed"
+	StateValidationFailed  = "Validation failed, re-downloading"
 	StateDownloaded        = "Downloaded"
-	StateValidatingChunk   = "Validating (resumes shortly)"
+	StateLiveValidation    = "Downloading (and validating)"
+	StateUnableToStart     = "Something went wrong, please check the logs"
 	StateCancelled         = "Cancelled"
 	StateExpired           = "Expired"
 	StateUnknown           = "<unknown>"
@@ -44,9 +47,12 @@ var statesForTableOrder = []string{
 	StatePending,
 	StateDownloadPending,
 	StateDownloadPreparing,
+	StateLiveValidation,
+	StateInitialValidation,
 	StateDownloadReady,
-	StateValidatingChunk,
 	StateDownloadFailed,
+	StateUnableToStart,
+	StateValidationFailed,
 	StateDownloaded,
 	StateExpired,
 	StateCancelled,
@@ -155,15 +161,24 @@ func (r *Reporter) render(plots []*plot.Plot) {
 			case plot.DownloadStatePreparing:
 				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloadPreparing, "-", "-"}, publishedColour})
+			case plot.DownloadStateInitialValidation:
+				downloading++
+				rows = append(rows, row{[]string{p.ID, StateInitialValidation, "-", "-"}, publishedColour})
 			case plot.DownloadStateDownloading:
 				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloading, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			case plot.DownloadStateFailed:
 				downloading++
 				rows = append(rows, row{[]string{p.ID, StateDownloadFailed, "-", "-"}, publishedColour})
-			case plot.DownloadStateValidatingChunk:
+			case plot.DownloadStateFailedValidation:
 				downloading++
-				rows = append(rows, row{[]string{p.ID, StateValidatingChunk, "-", "-"}, publishedColour})
+				rows = append(rows, row{[]string{p.ID, StateValidationFailed, "-", "-"}, publishedColour})
+			case plot.DownloadStateLiveValidation:
+				downloading++
+				rows = append(rows, row{[]string{p.ID, StateLiveValidation, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
+			case plot.DownloadStateUnableToStart:
+				downloading++
+				rows = append(rows, row{[]string{p.ID, StateUnableToStart, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			case plot.DownloadStateDownloaded:
 				rows = append(rows, row{[]string{p.ID, StateDownloaded, p.GetDownloadProgress(), p.GetDownloadSpeed()}, publishedColour})
 			default:

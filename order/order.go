@@ -7,5 +7,5 @@ type Order struct {
 }
 
 func (p *Order) String() string {
-	return fmt.Sprintf("Order [id=%s]", p.ID)
+	return fmt.Sprintf("[order id=%s]", p.ID)
 }
