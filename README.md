@@ -1,18 +1,19 @@
 # plotorder
 
-Automate download of Chia plots from
-[Chia Factory](https://chiafactory.com) service.
+This is the recommended way of downloading plots from [Chia Factory](https://chiafactory.com) plotting service.
 
-It's using [Chia Factory API](https://chiafactory.com/api/) and streamlines
-whole download process.
+It's using [Chia Factory API](https://chiafactory.com/api/) and streamlines the whole process.
 
-## Requirements
+## Features
+ - **Blake2 checksums** on every 10GB plot chunk to avoid bad downloads
+ - **Multiple plot directories** and will populate them automatically depending on spare space
+ - **Parallel downloads** to maximise your bandwidth
+ - **Binaries for most OSes** to get you going ASAP.
 
-Binaries are published for `Windows`, `Darwin` (macOS, OSX...) and `Linux` based operating systems with 64bit architectures. You can also build `plotorder` for other OS/arch very easily. Check out the `Makefile` for examples (see [this](https://golang.org/doc/install/source#environment) for available OS/arch compile targets)
 
 ## Usage
 
-The recommended way to use `plotorder` is to download the latest release binaries. For simplicity, you can use any of the following snippets to do it, which will create a `plotorder` executable binary in your current working directory.
+The recommended way to use `plotorder` is to download the latest release binaries. Binaries are published for `Windows`, `Darwin` (macOS, OSX...) and `Linux` based operating systems with 64bit architectures. For simplicity, you can use any of the following snippets to do it, which will create a `plotorder` executable binary in your current working directory.
 
 **Linux (amd64)**
 ```shell
@@ -32,7 +33,7 @@ curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | gre
 curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-darwin-arm64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
 ```
 
-**Windows**
+**Windows** (powershell)
 ```powershell
 Invoke-WebRequest -Uri $((((Invoke-WebRequest -Uri ‘https://api.github.com/repos/chiafactory/plotorder/releases/latest').Content | ConvertFrom-Json).assets.browser_download_url | select-string -Pattern 'pandoc-2.14.0.1-1-amd64.deb’).Line) -OutFile plotorder.exe
 ```
@@ -76,3 +77,7 @@ If there's not enough space to download all the plots (the published ones), `plo
 
 ### Logging
 By default, logs are stored under `plots/` in the working directory. You can specify a different path using `--logs-dir`. Logs will be auto-rotated when they reach 256MB. Old log files are compressed and retained for 30 days.
+
+## Build
+
+You can also build `plotorder` for other OS/arch very easily. Check out the `Makefile` for examples (see [this](https://golang.org/doc/install/source#environment) for available OS/arch compile targets)
