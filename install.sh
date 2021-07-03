@@ -53,7 +53,7 @@ fi
 
 FILENAME="plotorder-${OS}-${ARCH}"
 
-echo "Downloading plotorder binary file (${FILENAME})"
+echo "Downloading plotorder (${FILENAME})"
 curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest \
   | grep "browser_download_url.*${FILENAME}" \
   | cut -d '"' -f 4 \
