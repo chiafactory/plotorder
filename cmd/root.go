@@ -146,6 +146,7 @@ var (
 				return
 			}
 
+			log.Error("done")
 			os.Exit(0)
 		},
 	}
