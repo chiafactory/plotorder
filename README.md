@@ -13,7 +13,23 @@ It's using [Chia Factory API](https://chiafactory.com/api/) and streamlines the 
 
 ## Usage
 
-The recommended way to use `plotorder` is to download the latest release binaries. Binaries are published for `Windows`, `Darwin` (macOS, OSX...) and `Linux` based operating systems with 64bit architectures. For simplicity, you can use any of the following snippets to do it, which will create a `plotorder` executable binary in your current working directory.
+The recommended way to use `plotorder` is to download the latest release binaries. 
+
+**Linux** and **macOS**
+```shell
+./plotorder --api-key YOUR_API_KEY --order-id ORDER_ID
+```
+
+**Windows**
+```powershell
+Start-Process -NoNewWindow -FilePath "plotorder.exe" -ArgumentList "-api-key:YOUR_API_KEY","-order-id:ORDER_ID"
+```
+
+# Install 
+
+You can find all the binaries [here](https://github.com/chiafactory/plotorder/releases/)
+
+Binaries are published for `Windows`, `Darwin` (macOS, OSX...) and `Linux` based operating systems with 64bit architectures. For simplicity, you can use any of the following snippets to do it, which will create a `plotorder` executable binary in your current working directory.
 
 **Linux (amd64)**
 ```shell
@@ -38,19 +54,8 @@ curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | gre
 Invoke-WebRequest -Uri $((((Invoke-WebRequest -Uri ‘https://api.github.com/repos/chiafactory/plotorder/releases/latest').Content | ConvertFrom-Json).assets.browser_download_url | select-string -Pattern 'pandoc-2.14.0.1-1-amd64.deb’).Line) -OutFile plotorder.exe
 ```
 
-You can find all the binaries [here](https://github.com/chiafactory/plotorder/releases/)
 
-Once you download `plotorder`, you can get started very quickly:
-
-**Linux** and **macOS**
-```shell
-./plotorder --api-key YOUR_API_KEY --order-id ORDER_ID
-```
-
-**Windows**
-```powershell
-Start-Process -NoNewWindow -FilePath "plotorder.exe" -ArgumentList "-api-key:YOUR_API_KEY","-order-id:ORDER_ID"
-```
+## Configuration
 
 Below is a list of all the avaialable arguments.
 | Name                   | Required | Description                                       | Default                        |
