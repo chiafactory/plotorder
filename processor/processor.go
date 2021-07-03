@@ -21,6 +21,8 @@ var (
 	ErrFinished       = errors.New("finished")
 )
 
+const minAvailableSpaceThreshold = uint64(1000 * 1000 * 1000)
+
 type Processor struct {
 	// client is the ChiaFactory API client
 	client *client.Client
@@ -63,7 +65,7 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 	for _, plotDir := range proc.plotDirs {
 		filePath := path.Join(plotDir, filename)
 
-		// continue if the file does not exist (meaning we're not resuming a download)
+		// continue if the file does not exist (meaning we're not resuming a download in this `plotDir`)
 		fInfo, err := os.Stat(filePath)
 		if err != nil {
 			continue
@@ -79,7 +81,7 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 		available -= uint64(proc.claimedBytesByDrive[drive])
 
 		if remaining > int64(available) {
-			log.Errorf("%s there is not enough space in %s to resume the download for %s (%s left to download)", proc, plotDir, p.ID, humanize.Bytes(uint64(remaining)))
+			log.Errorf("%s there is not enough space in %s to resume the download for %s (%s left to download, available=%s)", proc, plotDir, p.ID, humanize.Bytes(uint64(remaining)), humanize.Bytes(uint64(available)))
 			return "", ErrNotEnoughSpace
 		}
 
@@ -296,6 +298,19 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 				proc.downloads.Wait()
 				return
 			case <-ticker.C:
+				// raise warnings about remaining disk space
+				for _, plotDir := range proc.plotDirs {
+					available, _, err := disk.GetAvailableSpace(plotDir)
+					if err != nil {
+						log.Warnf("%s error while checking available space in %s: %s", proc, plotDir, err)
+						continue
+					}
+
+					if available <= uint64(minAvailableSpaceThreshold) {
+						log.Warnf("%s %s is running out of space (remaining=%s)", proc, plotDir, humanize.Bytes(available))
+					}
+				}
+
 				finished, err = proc.process(ctx)
 				if err != nil {
 					// if the context has been cancelled, just continue and
