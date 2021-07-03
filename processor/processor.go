@@ -105,6 +105,8 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 			continue
 		}
 
+		//TODO: this needs to be kept in sync with the plots being downloaded, otherwise
+		// we'll always report the wrong claimed bytes
 		proc.claimedBytesByDrive[drive] += plotSize
 		return plotDir, nil
 	}
