@@ -193,13 +193,11 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 					break
 				}
 
-				nextScheduleTime = now.Add(2 * time.Second)
 				go func() {
 					p.PrepareDownload(ctx, plotDir)
 				}()
 			case plot.DownloadStateUnableToStart:
 				log.Debugf("%s re-initialising download in a few seconds", p)
-				nextScheduleTime = now.Add(5 * time.Second)
 				p.InitialiseDownload()
 			case plot.DownloadStatePreparing:
 				log.Debugf("%s is being prepared for download", p)
