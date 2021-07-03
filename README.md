@@ -33,20 +33,20 @@ Binaries are published for `Windows`, `Darwin` (macOS, OSX...) and `Linux` based
 
 **Linux (amd64)**
 ```shell
-curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-linux-amd64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
+curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-linux-amd64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder && chmod +x plotorder
 ```
 **Linux (arm64)**
 ```shell
-curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-linux-arm64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
+curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-linux-arm64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder && chmod +x plotorder
 ```
 
 **macOS (Intel)**
 ```shell
-curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-darwin-amd64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
+curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-darwin-amd64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder && chmod +x plotorder
 ```
 **macOS (Apple Silicon)**
 ```shell
-curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-darwin-arm64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder
+curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | grep "browser_download_url.*plotorder-darwin-arm64" | cut -d '"' -f 4 | xargs curl -Ls --output plotorder && chmod +x plotorder
 ```
 
 **Windows** (powershell)
