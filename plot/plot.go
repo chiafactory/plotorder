@@ -41,7 +41,6 @@ const (
 	DownloadStateInitialValidation DownloadState = "INITIAL_VALIDATION"
 	DownloadStateLiveValidation    DownloadState = "LIVE_VALIDATION"
 	DownloadStateFailedValidation  DownloadState = "FAILED_VALIDATION"
-	DownloadStateUnableToStart     DownloadState = "UNABLE_TO_START"
 )
 
 // hashChunkSize is the maximum size (in bytes) of the chunks we'll validate
@@ -63,20 +62,28 @@ type Plot struct {
 	// for this plot
 	PlottingProgress int
 
-	// DownloadURL is the URL to download the plot file
+	// DownloadURL is the URL we'll download the plot from. It comes from the API and once set
+	// it should not be modified
 	DownloadURL string
+
+	// DownloadDirectory is the plot download directory
+	DownloadDirectory string
+
+	// Downloadfilename is plot download filename
+	DownloadFilename string
+
+	// DownloadSize is the size of the plot in bytes
+	DownloadSize int64
 
 	// FileChunkHashes is a list of hashes we can use to validate the chunks we download. These come from
 	// the API and they **must** be calculated every `hashChunkSize` bytes (the last chunk is the only
 	// one that can be smaller)
 	FileChunkHashes []string
 
-	// DownloadState tells us about which specific download status the plot is in
-	DownloadState DownloadState
-
+	downloadState   DownloadState
 	downloadHistory []downloadHistoryRecord
-	downloadSize    int64
 	cancelDownload  context.CancelFunc
+	downloadError   bool
 
 	// f is the handle to the file we're downloading (can be nil)
 	f *os.File
@@ -111,9 +118,13 @@ func (p *Plot) getLocalFilename() (string, error) {
 }
 
 func (p *Plot) updateDownloadState(state DownloadState) {
-	prevState := p.DownloadState
-	p.DownloadState = state
+	prevState := p.downloadState
+	p.downloadState = state
 	log.Infof("%s download state moved from %s to %s", p, prevState, state)
+}
+
+func (p *Plot) GetDownloadState() DownloadState {
+	return p.downloadState
 }
 
 func (p *Plot) UpdateState(state State) {
@@ -124,10 +135,6 @@ func (p *Plot) UpdateState(state State) {
 
 func (p *Plot) UpdatePlottingProgress(progress int) {
 	p.PlottingProgress = progress
-}
-
-func (p *Plot) UpdateDownloadURL(url string) {
-	p.DownloadURL = url
 }
 
 func (p *Plot) GetDownloadSpeed() string {
@@ -151,7 +158,7 @@ func (p *Plot) GetDownloadProgress() string {
 		return "-"
 	}
 
-	if p.downloadSize == 0 {
+	if p.DownloadSize == 0 {
 		return "-"
 	}
 
@@ -160,7 +167,7 @@ func (p *Plot) GetDownloadProgress() string {
 	}
 
 	last := p.downloadHistory[len(p.downloadHistory)-1]
-	return fmt.Sprintf("%.2f%%", float32(100.0*float64(last.bytes)/float64(p.downloadSize)))
+	return fmt.Sprintf("%.2f%%", float32(100.0*float64(last.bytes)/float64(p.DownloadSize)))
 }
 
 func (p *Plot) GetPlottingProgress() string {
@@ -180,8 +187,8 @@ func (p *Plot) validateChunk(number int64) (valid bool, err error) {
 	start := stop - hashChunkSize
 
 	// and now adjust `stop` to limit it to the total plot file size
-	if stop > p.downloadSize {
-		stop = p.downloadSize
+	if stop > p.DownloadSize {
+		stop = p.DownloadSize
 	}
 
 	handle, err := os.Open(p.f.Name())
@@ -224,7 +231,7 @@ func (p *Plot) validateChunk(number int64) (valid bool, err error) {
 	return valid, nil
 }
 
-func (p *Plot) GetDownloadFilename() (filepath string, err error) {
+func (p *Plot) getDownloadFilename() (filepath string, err error) {
 	parsed, err := url.Parse(p.DownloadURL)
 	if err != nil {
 		return "", err
@@ -232,7 +239,7 @@ func (p *Plot) GetDownloadFilename() (filepath string, err error) {
 	return path.Base(parsed.Path), nil
 }
 
-func (p *Plot) GetDownloadSize() (fileSize int64, err error) {
+func (p *Plot) getDownloadSize() (fileSize int64, err error) {
 	req, err := http.NewRequest(http.MethodHead, p.DownloadURL, nil)
 	if err != nil {
 		return
@@ -249,11 +256,7 @@ func (p *Plot) GetDownloadSize() (fileSize int64, err error) {
 	}
 
 	contentLength := resp.Header.Get("Content-Length")
-	fileSize, err = strconv.ParseInt(contentLength, 10, 0)
-	if err != nil {
-		return
-	}
-	return fileSize, err
+	return strconv.ParseInt(contentLength, 10, 0)
 }
 
 func (p *Plot) startValidator(ctx context.Context) {
@@ -265,13 +268,13 @@ func (p *Plot) startValidator(ctx context.Context) {
 		for range ticker.C {
 			downloaded := p.getDownloadedBytes()
 			currChunkN := downloaded / hashChunkSize
-			if currChunkN != prevChunkN || downloaded == p.downloadSize {
-				prevState := p.DownloadState
+			if currChunkN != prevChunkN || downloaded == p.DownloadSize {
+				prevState := p.downloadState
 				p.updateDownloadState(DownloadStateLiveValidation)
 
 				// handle last chunk
 				chunk := prevChunkN
-				if downloaded == p.downloadSize {
+				if downloaded == p.DownloadSize {
 					chunk = currChunkN
 				}
 
@@ -315,15 +318,35 @@ func (p *Plot) startRecorder(ctx context.Context) {
 	}()
 }
 
-func (p *Plot) UnableToStartDownload() {
-	p.updateDownloadState(DownloadStateUnableToStart)
+func (p *Plot) GetRemainingBytes() int64 {
+	return p.DownloadSize - p.getDownloadedBytes()
 }
 
-func (p *Plot) InitialiseDownload() {
+func (p *Plot) SetDownloadError() {
+	p.downloadError = true
+}
+
+func (p *Plot) HasDownloadError() bool {
+	return p.downloadError
+}
+
+func (p *Plot) InitialiseDownload() error {
+	fileSize, err := p.getDownloadSize()
+	if err != nil {
+		return err
+	}
+	p.DownloadSize = fileSize
+
+	fileName, err := p.getDownloadFilename()
+	if err != nil {
+		return err
+	}
+	p.DownloadFilename = fileName
 	p.updateDownloadState(DownloadStateNotStarted)
+	return nil
 }
 
-func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) {
+func (p *Plot) PrepareDownload(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			p.updateDownloadState(DownloadStateFailed)
@@ -345,20 +368,10 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 
 	p.updateDownloadState(DownloadStatePreparing)
 
-	// figure out the size of the file
-	var fileSize int64
-	fileSize, err = p.GetDownloadSize()
-	if err != nil {
-		return
-	}
-	p.downloadSize = fileSize
+	// as soon as we get into here, we'll mark this as false
+	p.downloadError = false
 
-	var fileName string
-	fileName, err = p.GetDownloadFilename()
-	if err != nil {
-		return err
-	}
-	filePath := path.Join(plotDir, fileName)
+	filePath := path.Join(p.DownloadDirectory, p.DownloadFilename)
 
 	// we'll create a new file if it does not exist or append to
 	// it if it does
@@ -371,7 +384,7 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 		openFlags = os.O_RDWR | os.O_APPEND
 
 		// if the file has been fully downloaded, stop here
-		if fInfo.Size() == fileSize {
+		if fInfo.Size() == p.DownloadSize {
 			log.Infof("%s is already downloaded", p)
 			p.updateDownloadState(DownloadStateDownloaded)
 			return
@@ -396,7 +409,7 @@ func (p *Plot) PrepareDownload(ctx context.Context, plotDir string) (err error) 
 		return
 	}
 
-	// nothing to do if the file is empty
+	// nothing else to do if the file is empty
 	if downloaded == 0 {
 		p.updateDownloadState(DownloadStateReady)
 		return
@@ -453,7 +466,7 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 		if err != nil {
 			log.Errorf("%s download failed: %s", p, err.Error())
 			p.updateDownloadState(DownloadStateFailed)
-		} else if p.getDownloadedBytes() == p.downloadSize {
+		} else if p.getDownloadedBytes() == p.DownloadSize {
 			log.Errorf("%s download finished", p)
 			p.updateDownloadState(DownloadStateDownloaded)
 		} else {

@@ -41,73 +41,72 @@ type Processor struct {
 
 	// plotDirs are where plots will be downloaded to. We'll try to fill each
 	// location before using the next one
-	plotDirs            []string
-	claimedBytesByDrive map[string]int64
+	plotDirs []string
 
 	// schedule tells us when to check for plots
 	schedule map[string]time.Time
 }
 
+func (proc *Processor) getAvailableSpace(plotDir string) (int64, error) {
+	available, _, err := disk.GetAvailableSpace(plotDir)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, plot := range proc.plots {
+		if plot.DownloadDirectory == "" {
+			continue
+		}
+		if plot.DownloadDirectory == plotDir {
+			remaining := plot.GetRemainingBytes()
+			available -= uint64(remaining)
+		}
+	}
+	return int64(available), nil
+}
+
 func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
-	filename, err := p.GetDownloadFilename()
-	if err != nil {
-		return "", err
-	}
-
-	plotSize, err := p.GetDownloadSize()
-	if err != nil {
-		return "", err
-	}
-
 	// do a first pass to see if any of the directories contains a partial download of the plot.
 	// If it does, make sure there's enough space to resume the download. If there is, we'll use
 	// this directory. Otherwise, we'll return an error.
 	for _, plotDir := range proc.plotDirs {
-		filePath := path.Join(plotDir, filename)
+		filePath := path.Join(plotDir, p.DownloadFilename)
 
 		// continue if the file does not exist (meaning we're not resuming a download in this `plotDir`)
 		fInfo, err := os.Stat(filePath)
 		if err != nil {
 			continue
 		}
-		remaining := plotSize - fInfo.Size()
+		remaining := p.DownloadSize - fInfo.Size()
 
-		available, drive, err := disk.GetAvailableSpace(plotDir)
+		available, err := proc.getAvailableSpace(plotDir)
 		if err != nil {
 			return "", err
 		}
 
-		// take into account the space claimed by other downloads
-		available -= uint64(proc.claimedBytesByDrive[drive])
-
-		if remaining > int64(available) {
+		if remaining > available {
 			log.Errorf("%s there is not enough space in %s to resume the download for %s (%s left to download, available=%s)", proc, plotDir, p.ID, humanize.Bytes(uint64(remaining)), humanize.Bytes(uint64(available)))
 			return "", ErrNotEnoughSpace
 		}
 
-		proc.claimedBytesByDrive[drive] += remaining
+		log.Infof("%s resuming %s from existing file in %s (available=%s, remaining=%s)", proc, p.ID, plotDir, humanize.Bytes(uint64(available)), humanize.Bytes(uint64(remaining)))
 		return plotDir, nil
 	}
 
 	// now find the next available directory (with enough space)
 	for _, plotDir := range proc.plotDirs {
-		available, drive, err := disk.GetAvailableSpace(plotDir)
+		available, err := proc.getAvailableSpace(plotDir)
 		if err != nil {
 			return "", err
 		}
 
-		// take into account the space claimed by other downloads
-		available -= uint64(proc.claimedBytesByDrive[drive])
-
 		// if there's no room in this directory (drive), continue
-		if uint64(plotSize) > available {
-			log.Warnf("%s %s does not have enough space to download %s (available=%s)", proc, plotDir, p.ID, humanize.Bytes(available))
+		if p.DownloadSize > available {
+			log.Warnf("%s %s does not have enough space to download %s (available=%s)", proc, plotDir, p.ID, humanize.Bytes(uint64(available)))
 			continue
 		}
 
-		//TODO: this needs to be kept in sync with the plots being downloaded, otherwise
-		// we'll always report the wrong claimed bytes
-		proc.claimedBytesByDrive[drive] += plotSize
+		log.Infof("%s %s has enough space to start downloading %s (available=%s, plot_size=%s)", proc, plotDir, p.ID, humanize.Bytes(uint64(available)), humanize.Bytes(uint64(p.DownloadSize)))
 		return plotDir, nil
 	}
 
@@ -122,9 +121,7 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 	for i := range proc.plots {
 		p := proc.plots[i]
 
-		// if it's not
 		s, ok := proc.schedule[p.ID]
-
 		// if it's not here, it means we don't have to check any longer
 		if !ok {
 			continue
@@ -153,10 +150,6 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 			p.UpdatePlottingProgress(newP.PlottingProgress)
 		}
 
-		if p.DownloadURL != newP.DownloadURL {
-			p.UpdateDownloadURL(newP.DownloadURL)
-		}
-
 		// by default we'll retrieve the plots from the API every 10 minutes
 		nextScheduleTime := now.Add(10 * time.Minute)
 
@@ -167,42 +160,29 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 			nextScheduleTime = now.Add(1 * time.Minute)
 			log.Debugf("%s is currently being plotted (progress=%s)", p, newP.GetPlottingProgress())
 		case plot.StatePublished:
-			switch p.DownloadState {
+			switch p.GetDownloadState() {
 			case plot.DownloadStateNotStarted:
-
-				log.Debugf("%s retrieving verification hashes", p)
-				hashList, err := proc.client.GetHashesForPlot(ctx, p.ID)
-
-				// if they are not ready, we will try again
-				if err != nil {
-					if err == client.ErrPlotHashesNotReady {
-						log.Warnf("%s verification hashes still not ready. Waiting for chiafactory to calculate them", p)
-					} else {
-						log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
+				if p.DownloadDirectory == "" {
+					log.Debugf("%s looking for an available download directory for %s", proc, p.ID)
+					plotDir, err := proc.getPlotDownloadDirectory(p)
+					if err != nil {
+						if err == ErrNotEnoughSpace {
+							log.Errorf("%s please make room to download this plot", p)
+						} else {
+							log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
+						}
+						p.SetDownloadError()
+						break
 					}
-					p.UnableToStartDownload()
-					break
-				}
-				p.FileChunkHashes = hashList
-
-				// if anything goes wrong here, we'll need the user to do something
-				plotDir, err := proc.getPlotDownloadDirectory(p)
-				if err != nil {
-					if err == ErrNotEnoughSpace {
-						log.Errorf("%s please make room to download this plot", p)
-					} else {
-						log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
-					}
-					p.UnableToStartDownload()
-					break
+					p.DownloadDirectory = plotDir
 				}
 
 				go func() {
-					p.PrepareDownload(ctx, plotDir)
+					if err = p.PrepareDownload(ctx); err != nil {
+						p.SetDownloadError()
+						log.Errorf("%s error while preparing the download for plot %s. Retrying (error=%s)", proc, p.ID, err.Error())
+					}
 				}()
-			case plot.DownloadStateUnableToStart:
-				log.Debugf("%s re-initialising download in a few seconds", p)
-				p.InitialiseDownload()
 			case plot.DownloadStatePreparing:
 				log.Debugf("%s is being prepared for download", p)
 			case plot.DownloadStateReady:
@@ -213,9 +193,9 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 					p.Download(ctx)
 				}()
 			case plot.DownloadStateDownloading:
-				log.Debugf("%s is still being downloaded (progress=%s)", p, p.GetDownloadProgress())
+				log.Debugf("%s downloading (progress=%s)", p, p.GetDownloadProgress())
 			case plot.DownloadStateFailed:
-				log.Debugf("%s download has failed. We'll retry it", p)
+				log.Debugf("%s download failed. We'll retry it", p)
 				p.RetryDownload(ctx)
 			case plot.DownloadStateDownloaded:
 				nextScheduleTime = now.Add(1 * time.Minute)
@@ -234,10 +214,35 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 				log.Debugf("%s validation for the last chunk failed. We'll re-download it", p)
 				p.RetryDownload(ctx)
 			case "":
-				log.Infof("%s initialising", p)
-				p.InitialiseDownload()
+				log.Infof("%s initialising download for %s", proc, p.ID)
+
+				if len(p.FileChunkHashes) == 0 {
+					log.Debugf("%s retrieving verification hashes for %s", proc, p.ID)
+					hashList, err := proc.client.GetHashesForPlot(ctx, p.ID)
+
+					// if they are not ready, we will try again later on
+					if err != nil {
+						if err == client.ErrPlotHashesNotReady {
+							log.Warnf("%s verification hashes still not ready. Waiting for chiafactory to calculate them", p)
+						} else {
+							log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
+						}
+						p.SetDownloadError()
+						break
+					}
+					p.FileChunkHashes = hashList
+				}
+
+				if p.DownloadURL == "" && newP.DownloadURL != "" {
+					p.DownloadURL = newP.DownloadURL
+				}
+
+				if err = p.InitialiseDownload(); err != nil {
+					p.SetDownloadError()
+					log.Errorf("%s error while initialising the download for plot %s. Retrying (error=%s)", proc, p.ID, err.Error())
+				}
 			default:
-				return false, fmt.Errorf("%s unexpected download state (%s)", proc, p.DownloadState)
+				return false, fmt.Errorf("%s unexpected download state (%s)", proc, p.GetDownloadState())
 			}
 		case plot.StateCancelled, plot.StateExpired:
 			expiredOrCancelled++
@@ -264,6 +269,9 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 }
 
 func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	ticker := time.NewTicker(proc.frequency)
 
 	order, err := proc.client.GetOrder(ctx, orderID)
@@ -279,7 +287,7 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 	proc.plots = plots
 
 	for _, p := range plots {
-		proc.schedule[p.ID] = time.Now()
+		proc.schedule[p.ID] = time.Time{}
 	}
 
 	log.Infof("%s %s has %d plots", proc, order, len(plots))
@@ -308,7 +316,11 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 						continue
 					}
 
-					if available <= uint64(minAvailableSpaceThreshold) {
+					if available == 0 {
+						log.Warnf("%s %s has no remaining space. All downloads will be stopped and the program will exit", proc, plotDir)
+						cancel()
+						return
+					} else if available <= uint64(minAvailableSpaceThreshold) {
 						log.Warnf("%s %s is running out of space (remaining=%s)", proc, plotDir, humanize.Bytes(available))
 					}
 				}
@@ -342,13 +354,12 @@ func (proc *Processor) String() string {
 
 func NewProcessor(c *client.Client, r *Reporter, plotDirs []string, frequency time.Duration) (*Processor, error) {
 	p := &Processor{
-		client:              c,
-		reporter:            r,
-		downloads:           sync.WaitGroup{},
-		frequency:           frequency,
-		plotDirs:            plotDirs,
-		schedule:            map[string]time.Time{},
-		claimedBytesByDrive: map[string]int64{},
+		client:    c,
+		reporter:  r,
+		downloads: sync.WaitGroup{},
+		frequency: frequency,
+		plotDirs:  plotDirs,
+		schedule:  map[string]time.Time{},
 	}
 	return p, nil
 }
