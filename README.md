@@ -29,7 +29,9 @@ Start-Process -NoNewWindow -FilePath "plotorder.exe" -ArgumentList "-api-key:YOU
 
 You can find all the binaries [here](https://github.com/chiafactory/plotorder/releases/)
 
-Binaries are published for `Windows`, `Darwin` (macOS, OSX...) and `Linux` based operating systems with 64bit architectures. For simplicity, you can use any of the following snippets to do it, which will create a `plotorder` executable binary in your current working directory.
+Binaries are published for `Windows`, `Darwin` (macOS, OSX...) and `Linux` based operating systems with 64bit architectures. 
+
+*For simplicity*, you can use any of the following snippets to do it, which will create a `plotorder` executable binary in your current working directory.
 
 **Linux (amd64)**
 ```shell
