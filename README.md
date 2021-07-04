@@ -8,6 +8,7 @@ It's using [Chia Factory API](https://chiafactory.com/api/) and streamlines the 
  - **Blake2 checksums** on every 10GB plot chunk to avoid bad downloads
  - **Multiple plot directories** and will populate them automatically depending on spare space
  - **Parallel downloads** to maximise your bandwidth
+ - **Download Resume** 
  - **Binaries for most OSes** to get you going ASAP.
 
 
