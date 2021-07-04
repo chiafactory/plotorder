@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"sync"
 	"time"
 
@@ -70,14 +69,14 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 	// If it does, make sure there's enough space to resume the download. If there is, we'll use
 	// this directory. Otherwise, we'll return an error.
 	for _, plotDir := range proc.plotDirs {
-		filePath := path.Join(plotDir, p.DownloadFilename)
+		filePath := p.GetDownloadFilepath()
 
 		// continue if the file does not exist (meaning we're not resuming a download in this `plotDir`)
 		fInfo, err := os.Stat(filePath)
 		if err != nil {
 			continue
 		}
-		remaining := p.DownloadSize - fInfo.Size()
+		remaining := p.GetDownloadSize() - fInfo.Size()
 
 		available, err := proc.getAvailableSpace(plotDir)
 		if err != nil {
@@ -101,12 +100,12 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 		}
 
 		// if there's no room in this directory (drive), continue
-		if p.DownloadSize > available {
+		if p.GetDownloadSize() > available {
 			log.Warnf("%s %s does not have enough space to download %s (available=%s)", proc, plotDir, p.ID, humanize.Bytes(uint64(available)))
 			continue
 		}
 
-		log.Infof("%s %s has enough space to start downloading %s (available=%s, plot_size=%s)", proc, plotDir, p.ID, humanize.Bytes(uint64(available)), humanize.Bytes(uint64(p.DownloadSize)))
+		log.Infof("%s %s has enough space to start downloading %s (available=%s, plot_size=%s)", proc, plotDir, p.ID, humanize.Bytes(uint64(available)), humanize.Bytes(uint64(p.GetDownloadSize())))
 		return plotDir, nil
 	}
 
