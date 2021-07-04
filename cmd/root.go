@@ -146,7 +146,7 @@ var (
 				return
 			}
 
-			log.Error("done")
+			log.Info("Done")
 			os.Exit(0)
 		},
 	}
@@ -172,7 +172,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "https://chiafactory.com/api/v1", "the URL of Chiafactory's API")
 	rootCmd.PersistentFlags().StringVar(&orderID, "order-id", "", "the id of the order you want to process plots for")
 	rootCmd.PersistentFlags().StringArrayVar(&plotDirs, "plot-dir", []string{}, "the paths where to store downloaded plots")
-	rootCmd.PersistentFlags().DurationVar(&plotCheckFrequency, "plot-check-frequency", 5*time.Second, "the time between checks on an order's plots")
+	rootCmd.PersistentFlags().DurationVar(&plotCheckFrequency, "plot-check-frequency", 2*time.Second, "the time between checks on an order's plots")
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file to use")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enables verbose logging (DEBUG level)")
 	rootCmd.PersistentFlags().StringVar(&logsDir, "logs-dir", "", "the paths where to store downloaded plots")
