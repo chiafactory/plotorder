@@ -114,9 +114,6 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 }
 
 func (proc *Processor) process(ctx context.Context) (bool, error) {
-	// keep track of all the expired or cancelled plots
-	expiredOrCancelled := 0
-
 	for i := range proc.plots {
 		p := proc.plots[i]
 
@@ -244,7 +241,6 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 				return false, fmt.Errorf("%s unexpected download state (%s)", proc, p.GetDownloadState())
 			}
 		case plot.StateCancelled, plot.StateExpired:
-			expiredOrCancelled++
 			delete(proc.schedule, p.ID)
 			updateSchedule = false
 			log.Debugf("%s is expired or cancelled", p)
@@ -258,7 +254,14 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 		}
 	}
 
-	if len(proc.plots) == expiredOrCancelled {
+	allDone := true
+	for _, p := range proc.plots {
+		if p.State != plot.StateCancelled && p.State != plot.StateExpired {
+			allDone = false
+			break
+		}
+	}
+	if allDone {
 		return true, nil
 	}
 
