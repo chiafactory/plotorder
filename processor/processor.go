@@ -249,6 +249,7 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 				}
 
 				if !proc.isDownloadAllowed() {
+					log.Debugf("%s needs to wait for other downloads to finish", p)
 					p.SetDownloadEnqueued()
 					break
 				}
