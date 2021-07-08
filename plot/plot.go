@@ -43,6 +43,7 @@ const (
 	DownloadStateInitialValidation          DownloadState = "INITIAL_VALIDATION"
 	DownloadStateLiveValidation             DownloadState = "LIVE_VALIDATION"
 	DownloadStateFailedValidation           DownloadState = "FAILED_VALIDATION"
+	DownloadStateEnqueued                   DownloadState = "ENQUEUED"
 )
 
 // hashChunkSize is the maximum size (in bytes) of the chunks we'll validate
@@ -114,6 +115,10 @@ func (p *Plot) getLocalFilename() (string, error) {
 }
 
 func (p *Plot) updateDownloadState(state DownloadState) {
+	if p.downloadState == state {
+		return
+	}
+
 	prevState := p.downloadState
 	p.downloadState = state
 	log.Infof("%s download state moved from %s to %s", p, prevState, state)
@@ -132,6 +137,10 @@ func (p *Plot) GetDownloadFilepath() string {
 		return ""
 	}
 	return path.Join(p.downloadDirectory, p.downloadFilename)
+}
+
+func (p *Plot) GetDownloadFilename() string {
+	return p.downloadFilename
 }
 
 func (p *Plot) UpdateState(state State) {
@@ -365,6 +374,10 @@ func (p *Plot) SetDownloadDirectory(dir string) {
 
 func (p *Plot) GetDownloadDirectory() string {
 	return p.downloadDirectory
+}
+
+func (p *Plot) SetDownloadEnqueued() {
+	p.updateDownloadState(DownloadStateEnqueued)
 }
 
 func (p *Plot) PrepareDownload(ctx context.Context) (err error) {
