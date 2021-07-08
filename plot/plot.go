@@ -32,15 +32,17 @@ type DownloadState string
 
 const (
 	// Plot download statuses (only used in this tool)
-	DownloadStateNotStarted        DownloadState = "NOT_STARTED"
-	DownloadStatePreparing         DownloadState = "PREPARING"
-	DownloadStateReady             DownloadState = "READY"
-	DownloadStateDownloading       DownloadState = "DOWNLOADING"
-	DownloadStateDownloaded        DownloadState = "DOWNLOADED"
-	DownloadStateFailed            DownloadState = "FAILED"
-	DownloadStateInitialValidation DownloadState = "INITIAL_VALIDATION"
-	DownloadStateLiveValidation    DownloadState = "LIVE_VALIDATION"
-	DownloadStateFailedValidation  DownloadState = "FAILED_VALIDATION"
+	DownloadStateLookingForDownloadLocation DownloadState = "LOOKING_FOR_DOWNLOAD_LOCATION"
+	DownloadStateNotStarted                 DownloadState = "NOT_STARTED"
+	DownloadStateWaitingForHashes           DownloadState = "WAITING_FOR_HASHES"
+	DownloadStatePreparing                  DownloadState = "PREPARING"
+	DownloadStateReady                      DownloadState = "READY"
+	DownloadStateDownloading                DownloadState = "DOWNLOADING"
+	DownloadStateDownloaded                 DownloadState = "DOWNLOADED"
+	DownloadStateFailed                     DownloadState = "FAILED"
+	DownloadStateInitialValidation          DownloadState = "INITIAL_VALIDATION"
+	DownloadStateLiveValidation             DownloadState = "LIVE_VALIDATION"
+	DownloadStateFailedValidation           DownloadState = "FAILED_VALIDATION"
 )
 
 // hashChunkSize is the maximum size (in bytes) of the chunks we'll validate
@@ -66,20 +68,18 @@ type Plot struct {
 	// it should not be modified
 	DownloadURL string
 
-	// DownloadDirectory is the plot download directory
-	DownloadDirectory string
-
-	// FileChunkHashes is a list of hashes we can use to validate the chunks we download. These come from
+	// fileChunkHashes is a list of hashes that we use to validate the data we download. These come from
 	// the API and they **must** be calculated every `hashChunkSize` bytes (the last chunk is the only
 	// one that can be smaller)
-	FileChunkHashes []string
+	fileChunkHashes []string
 
-	downloadFilename string
-	downloadState    DownloadState
-	downloadSize     int64
-	downloadHistory  []downloadHistoryRecord
-	cancelDownload   context.CancelFunc
-	downloadError    bool
+	downloadState     DownloadState
+	downloadDirectory string
+	downloadFilename  string
+	downloadSize      int64
+	downloadHistory   []downloadHistoryRecord
+	cancelDownload    context.CancelFunc
+	downloadError     bool
 
 	// f is the handle to the file we're downloading (can be nil)
 	f *os.File
@@ -128,7 +128,10 @@ func (p *Plot) GetDownloadSize() int64 {
 }
 
 func (p *Plot) GetDownloadFilepath() string {
-	return path.Join(p.DownloadDirectory, p.downloadFilename)
+	if p.downloadFilename == "" || p.downloadDirectory == "" {
+		return ""
+	}
+	return path.Join(p.downloadDirectory, p.downloadFilename)
 }
 
 func (p *Plot) UpdateState(state State) {
@@ -219,13 +222,13 @@ func (p *Plot) validateChunk(number int64) (valid bool, err error) {
 	}
 
 	// chunks are 0-indexed
-	for idx := range p.FileChunkHashes {
+	for idx := range p.fileChunkHashes {
 		if idx == int(number) {
-			if p.FileChunkHashes[idx] == chunkHash {
-				log.Infof("%s chunk is valid (calculated=%s, expected=%s)", p, chunkHash, p.FileChunkHashes[idx])
+			if p.fileChunkHashes[idx] == chunkHash {
+				log.Infof("%s chunk is valid (calculated=%s, expected=%s)", p, chunkHash, p.fileChunkHashes[idx])
 				valid = true
 			} else {
-				log.Errorf("%s chunk is invalid (calculated=%s, expected=%s)", p, chunkHash, p.FileChunkHashes[idx])
+				log.Errorf("%s chunk is invalid (calculated=%s, expected=%s)", p, chunkHash, p.fileChunkHashes[idx])
 				p.truncateFrom = &start
 			}
 			break
@@ -346,8 +349,22 @@ func (p *Plot) InitialiseDownload() error {
 		return err
 	}
 	p.downloadFilename = fileName
-	p.updateDownloadState(DownloadStateNotStarted)
+	p.updateDownloadState(DownloadStateLookingForDownloadLocation)
 	return nil
+}
+
+func (p *Plot) SetFileHashes(hashes []string) {
+	p.fileChunkHashes = hashes
+	p.updateDownloadState(DownloadStateNotStarted)
+}
+
+func (p *Plot) SetDownloadDirectory(dir string) {
+	p.downloadDirectory = dir
+	p.updateDownloadState(DownloadStateWaitingForHashes)
+}
+
+func (p *Plot) GetDownloadDirectory() string {
+	return p.downloadDirectory
 }
 
 func (p *Plot) PrepareDownload(ctx context.Context) (err error) {
@@ -543,7 +560,6 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 	done := make(chan error)
 	p.startValidator(ctx)
 	p.startRecorder(ctx)
-
 	go func() {
 
 		var (

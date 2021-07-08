@@ -53,10 +53,10 @@ func (proc *Processor) getAvailableSpace(plotDir string) (int64, error) {
 	}
 
 	for _, plot := range proc.plots {
-		if plot.DownloadDirectory == "" {
+		if plot.GetDownloadDirectory() == "" {
 			continue
 		}
-		if plot.DownloadDirectory == plotDir {
+		if plot.GetDownloadDirectory() == plotDir {
 			remaining := plot.GetRemainingBytes()
 			available -= uint64(remaining)
 		}
@@ -153,26 +153,36 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 		case plot.StatePending:
 			log.Debugf("%s plotting has not started", p)
 		case plot.StatePlotting:
-			nextScheduleTime = now.Add(1 * time.Minute)
 			log.Debugf("%s is currently being plotted (progress=%s)", p, newP.GetPlottingProgress())
+			nextScheduleTime = now.Add(1 * time.Minute)
 		case plot.StatePublished:
 			switch p.GetDownloadState() {
-			case plot.DownloadStateNotStarted:
-				if p.DownloadDirectory == "" {
-					log.Debugf("%s looking for an available download directory for %s", proc, p.ID)
-					plotDir, err := proc.getPlotDownloadDirectory(p)
-					if err != nil {
-						if err == ErrNotEnoughSpace {
-							log.Errorf("%s please make room to download this plot", p)
-						} else {
-							log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
-						}
-						p.SetDownloadError()
-						break
-					}
-					p.DownloadDirectory = plotDir
-				}
+			case plot.DownloadStateLookingForDownloadLocation:
+				log.Debugf("%s looking for an available download directory for %s", proc, p.ID)
 
+				plotDir, err := proc.getPlotDownloadDirectory(p)
+				if err == ErrNotEnoughSpace {
+					log.Errorf("%s please make room to download this plot", p)
+					p.SetDownloadError()
+				} else if err != nil {
+					log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
+					p.SetDownloadError()
+				} else {
+					p.SetDownloadDirectory(plotDir)
+				}
+			case plot.DownloadStateWaitingForHashes:
+				log.Debugf("%s waiting get the plot verification hashes", p)
+
+				hashList, err := proc.client.GetHashesForPlot(ctx, p.ID)
+				if err == client.ErrPlotHashesNotReady {
+					log.Warnf("%s verification hashes still not ready. Waiting for chiafactory to calculate them", p)
+				} else if err != nil {
+					log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
+					p.SetDownloadError()
+				} else {
+					p.SetFileHashes(hashList)
+				}
+			case plot.DownloadStateNotStarted:
 				go func() {
 					if err = p.PrepareDownload(ctx); err != nil {
 						p.SetDownloadError()
@@ -199,9 +209,9 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 				dp, err := proc.client.DeletePlot(ctx, p.ID)
 				if err != nil {
 					log.Errorf("%s failed to delete plot (%s). Retrying soon", p, err)
-					continue
+				} else {
+					p.UpdateState(dp.State)
 				}
-				p.UpdateState(dp.State)
 			case plot.DownloadStateLiveValidation:
 				log.Debugf("%s is validating the latest chunk", p)
 			case plot.DownloadStateInitialValidation:
@@ -209,41 +219,25 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 			case plot.DownloadStateFailedValidation:
 				log.Debugf("%s validation for the last chunk failed. We'll re-download it", p)
 				p.RetryDownload(ctx)
+
 			case "":
 				log.Infof("%s initialising download for %s", proc, p.ID)
-
-				if len(p.FileChunkHashes) == 0 {
-					log.Debugf("%s retrieving verification hashes for %s", proc, p.ID)
-					hashList, err := proc.client.GetHashesForPlot(ctx, p.ID)
-
-					// if they are not ready, we will try again later on
-					if err != nil {
-						if err == client.ErrPlotHashesNotReady {
-							log.Warnf("%s verification hashes still not ready. Waiting for chiafactory to calculate them", p)
-						} else {
-							log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
-						}
-						p.SetDownloadError()
-						break
-					}
-					p.FileChunkHashes = hashList
-				}
 
 				if p.DownloadURL == "" && newP.DownloadURL != "" {
 					p.DownloadURL = newP.DownloadURL
 				}
 
 				if err = p.InitialiseDownload(); err != nil {
-					p.SetDownloadError()
 					log.Errorf("%s error while initialising the download for plot %s. Retrying (error=%s)", proc, p.ID, err.Error())
+					p.SetDownloadError()
 				}
 			default:
 				return false, fmt.Errorf("%s unexpected download state (%s)", proc, p.GetDownloadState())
 			}
 		case plot.StateCancelled, plot.StateExpired:
+			log.Debugf("%s is expired or cancelled", p)
 			delete(proc.schedule, p.ID)
 			updateSchedule = false
-			log.Debugf("%s is expired or cancelled", p)
 		default:
 			return false, fmt.Errorf("unexpected state (%s)", p.State)
 		}
@@ -288,7 +282,7 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 
 	proc.plots = plots
 
-	for _, p := range plots {
+	for _, p := range proc.plots {
 		proc.schedule[p.ID] = time.Time{}
 	}
 
