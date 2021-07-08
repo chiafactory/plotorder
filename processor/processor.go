@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"sync"
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -44,6 +46,9 @@ type Processor struct {
 
 	// schedule tells us when to check for plots
 	schedule map[string]time.Time
+
+	// maxDownloads is the maximum number of parallel downloads
+	maxDownloads int
 }
 
 func (proc *Processor) getAvailableSpace(plotDir string) (int64, error) {
@@ -69,7 +74,10 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 	// If it does, make sure there's enough space to resume the download. If there is, we'll use
 	// this directory. Otherwise, we'll return an error.
 	for _, plotDir := range proc.plotDirs {
-		filePath := p.GetDownloadFilepath()
+		fileName := p.GetDownloadFilename()
+		filePath := path.Join(plotDir, fileName)
+
+		logrus.Debugf("%s checking if %s exists", p, filePath)
 
 		// continue if the file does not exist (meaning we're not resuming a download in this `plotDir`)
 		fInfo, err := os.Stat(filePath)
@@ -111,6 +119,20 @@ func (proc *Processor) getPlotDownloadDirectory(p *plot.Plot) (string, error) {
 
 	log.Errorf("%s none of the provided directories has enough space to download %s", proc, p.ID)
 	return "", ErrNotEnoughSpace
+}
+
+func (proc *Processor) isDownloadAllowed() bool {
+	if proc.maxDownloads == 0 {
+		return true
+	}
+
+	downloading := 0
+	for _, p := range proc.plots {
+		if p.State == plot.StatePublished && p.GetDownloadState() != "" {
+			downloading++
+		}
+	}
+	return downloading < proc.maxDownloads
 }
 
 func (proc *Processor) process(ctx context.Context) (bool, error) {
@@ -220,13 +242,17 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 				log.Debugf("%s validation for the last chunk failed. We'll re-download it", p)
 				p.RetryDownload(ctx)
 
-			case "":
-				log.Infof("%s initialising download for %s", proc, p.ID)
-
+			case plot.DownloadStateEnqueued, "":
 				if p.DownloadURL == "" && newP.DownloadURL != "" {
 					p.DownloadURL = newP.DownloadURL
 				}
 
+				if !proc.isDownloadAllowed() {
+					p.SetDownloadEnqueued()
+					break
+				}
+
+				log.Infof("%s initialising download for %s", proc, p.ID)
 				if err = p.InitialiseDownload(); err != nil {
 					log.Errorf("%s error while initialising the download for plot %s. Retrying (error=%s)", proc, p.ID, err.Error())
 					p.SetDownloadError()
@@ -348,14 +374,15 @@ func (proc *Processor) String() string {
 	return "[processor]"
 }
 
-func NewProcessor(c *client.Client, r *Reporter, plotDirs []string, frequency time.Duration) (*Processor, error) {
+func NewProcessor(c *client.Client, r *Reporter, plotDirs []string, frequency time.Duration, maxDownloads int) (*Processor, error) {
 	p := &Processor{
-		client:    c,
-		reporter:  r,
-		downloads: sync.WaitGroup{},
-		frequency: frequency,
-		plotDirs:  plotDirs,
-		schedule:  map[string]time.Time{},
+		client:       c,
+		reporter:     r,
+		downloads:    sync.WaitGroup{},
+		frequency:    frequency,
+		plotDirs:     plotDirs,
+		schedule:     map[string]time.Time{},
+		maxDownloads: maxDownloads,
 	}
 	return p, nil
 }
