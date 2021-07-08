@@ -31,6 +31,7 @@ var (
 	logsDir            string
 	plotCheckFrequency time.Duration
 	verbose            bool
+	maxDownloads       int
 	rootCmd            = &cobra.Command{
 		Use:   "plotorder",
 		Short: "plotorder automates the download of Chia plots from chiafactory.com",
@@ -133,7 +134,7 @@ var (
 			log.Infof("apiKey=%s, apiURL=%s, plotDirs=%s, logsDir=%s", fmt.Sprintf("****%s", apiKey[len(apiKey)-4:]), apiURL, plotDirs, logsDir)
 
 			client := client.NewClient(apiKey, apiURL)
-			proc, err := processor.NewProcessor(client, reporter, plotDirs, plotCheckFrequency)
+			proc, err := processor.NewProcessor(client, reporter, plotDirs, plotCheckFrequency, maxDownloads)
 			if err != nil {
 				log.Error("plot processing could not start")
 				return
@@ -176,12 +177,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file to use")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enables verbose logging (DEBUG level)")
 	rootCmd.PersistentFlags().StringVar(&logsDir, "logs-dir", "", "the paths where to store downloaded plots")
+	rootCmd.PersistentFlags().IntVar(&maxDownloads, "max-downloads", 0, "the maximum number of downloads we will allow to run in parallel")
 
 	viper.BindPFlag("api-key", rootCmd.PersistentFlags().Lookup("api-key"))
 	viper.BindPFlag("api-url", rootCmd.PersistentFlags().Lookup("api-url"))
 	viper.BindPFlag("plot-dir", rootCmd.PersistentFlags().Lookup("plot-dir"))
 	viper.BindPFlag("plot-check-frequency", rootCmd.PersistentFlags().Lookup("check-frequency"))
 	viper.BindPFlag("logs-dir", rootCmd.PersistentFlags().Lookup("logs-dir"))
+	viper.BindPFlag("max-downloads", rootCmd.PersistentFlags().Lookup("max-downloads"))
 }
 
 func initConfig() {
