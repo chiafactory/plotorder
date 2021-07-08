@@ -128,7 +128,8 @@ func (proc *Processor) isDownloadAllowed() bool {
 
 	downloading := 0
 	for _, p := range proc.plots {
-		if p.State == plot.StatePublished && p.GetDownloadState() != "" {
+		state := p.GetDownloadState()
+		if p.State == plot.StatePublished && state != "" && state != plot.DownloadStateEnqueued {
 			downloading++
 		}
 	}
