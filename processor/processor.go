@@ -188,7 +188,7 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 					log.Errorf("%s please make room to download this plot", p)
 					p.SetDownloadError()
 				} else if err != nil {
-					log.Errorf("%s unexpected error while retrieving verification hashes (%s)", p, err)
+					log.Errorf("%s unexpected error while looking for a download directory (%s)", p, err)
 					p.SetDownloadError()
 				} else {
 					p.SetDownloadDirectory(plotDir)
