@@ -66,8 +66,8 @@ Below is a list of all the avaialable arguments.
 | --api-key              | yes      | your personal https://chiafactory.com API key     | N/A                            |
 | --order-id             | yes      | the id of the order you want to process plots for | N/A                            |
 | --api-url              | no       | the URL of Chiafactory's API                      | https://chiafactory.com/api/v1 |
-| --logs-dir             | no       | the directory to store logs                       | `plots/` in working directory  |
-| --plot-dir             | no       | the directory to download plots (multiple allowed)| `logs/` in working directory   |
+| --logs-dir             | no       | the directory to store logs                       | `logs/` in working directory   |
+| --plot-dir             | no       | the directory to download plots (multiple allowed)| `plots/` in working directory  |
 | --plot-check-frequency | no       | the time between checks on an order's plots       | `5s`                           |
 | --config               | no       | config file to use                                | N/A                            |
 | --verbose              | no       | enables verbose logging (DEBUG level)             | `false`                        |
