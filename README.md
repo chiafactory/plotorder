@@ -54,7 +54,7 @@ curl -s https://api.github.com/repos/chiafactory/plotorder/releases/latest | gre
 
 **Windows** (powershell)
 ```powershell
-Invoke-WebRequest -Uri $((((Invoke-WebRequest -Uri ‘https://api.github.com/repos/chiafactory/plotorder/releases/latest').Content | ConvertFrom-Json).assets.browser_download_url | select-string -Pattern 'pandoc-2.14.0.1-1-amd64.deb’).Line) -OutFile plotorder.exe
+Invoke-WebRequest -Uri $((((Invoke-WebRequest -UseBasicParsing -Uri ‘https://api.github.com/repos/chiafactory/plotorder/releases/latest').Content | ConvertFrom-Json).assets.browser_download_url | select-string -Pattern 'plotorder-windows-amd64').Line) -OutFile plotorder.exe
 ```
 
 
