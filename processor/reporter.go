@@ -22,24 +22,6 @@ const (
 	errorColour     = tablewriter.FgRedColor
 )
 
-const (
-	StatePending           = "Pending"
-	StatePlotting          = "Plotting"
-	StateDownloadPending   = "Download pending"
-	StateDownloadPreparing = "Preparing download"
-	StateInitialValidation = "Validating before resuming"
-	StateDownloadReady     = "Ready to download"
-	StateDownloading       = "Downloading"
-	StateDownloadFailed    = "Download failed"
-	StateValidationFailed  = "Validation failed, re-downloading"
-	StateDownloaded        = "Downloaded"
-	StateLiveValidation    = "Downloading (and validating)"
-	StateCancelled         = "Cancelled"
-	StateExpired           = "Expired"
-	StateUnknown           = "<unknown>"
-	StateDownloadError     = "Error, please check logs"
-)
-
 var (
 	cyan    = color.New(color.FgCyan)
 	yellow  = color.New(color.FgYellow)
@@ -101,7 +83,7 @@ func (r *Reporter) render(plots []*plot.Plot) {
 
 	rows := []row{}
 	table := tablewriter.NewWriter(r.w)
-	table.SetHeader([]string{"Plot", "State", "Progress", "Speed", "Directory"})
+	table.SetHeader([]string{"Plot", "State", "Progress", "Speed", "Download Directory"})
 	table.SetAutoFormatHeaders(false)
 	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
 	table.SetCenterSeparator("+")
@@ -109,7 +91,7 @@ func (r *Reporter) render(plots []*plot.Plot) {
 	table.SetColMinWidth(1, 30)
 	table.SetColMinWidth(2, 10)
 	table.SetColMinWidth(3, 10)
-	table.SetColMinWidth(3, 10)
+	table.SetColMinWidth(3, 15)
 	table.SetColumnAlignment([]int{tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER, tablewriter.ALIGN_CENTER})
 
 	var (
@@ -127,36 +109,42 @@ func (r *Reporter) render(plots []*plot.Plot) {
 			pending++
 		case plot.StatePlotting:
 			plotting++
-			rows = append(rows, row{1, []string{p.ID, StatePlotting, p.GetPlottingProgress(), "-", "-"}, plottingColour})
+			rows = append(rows, row{1, []string{p.ID, "Plotting", p.GetPlottingProgress(), "-", "-"}, plottingColour})
 		case plot.StatePublished:
 			downloading++
 
 			if p.HasDownloadError() {
-				rows = append(rows, row{0, []string{p.ID, StateDownloadError, "-", "-", "-"}, errorColour})
+				rows = append(rows, row{0, []string{p.ID, "Error, please check logs", "-", "-", "-"}, errorColour})
 				continue
 			}
 
 			switch p.GetDownloadState() {
 			case plot.DownloadStateNotStarted:
-				rows = append(rows, row{0, []string{p.ID, StateDownloadPending, "-", "-", "-"}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Download pending", "-", "-", p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateReady:
-				rows = append(rows, row{0, []string{p.ID, StateDownloadReady, "-", "-", p.DownloadDirectory}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Ready to download", "-", "-", p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStatePreparing:
-				rows = append(rows, row{0, []string{p.ID, StateDownloadPreparing, "-", "-", p.DownloadDirectory}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Preparing download", "-", "-", p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateInitialValidation:
-				rows = append(rows, row{0, []string{p.ID, StateInitialValidation, "-", "-", p.DownloadDirectory}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Validating before resuming", "-", "-", p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateDownloading:
-				rows = append(rows, row{0, []string{p.ID, StateDownloading, p.GetDownloadProgress(), p.GetDownloadSpeed(), p.DownloadDirectory}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Downloading", p.GetDownloadProgress(), p.GetDownloadSpeed(), p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateFailed:
-				rows = append(rows, row{0, []string{p.ID, StateDownloadFailed, "-", "-", p.DownloadDirectory}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Download failed", "-", "-", p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateFailedValidation:
-				rows = append(rows, row{0, []string{p.ID, StateValidationFailed, "-", "-", p.DownloadDirectory}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Validation failed, re-downloading", "-", "-", p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateLiveValidation:
-				rows = append(rows, row{0, []string{p.ID, StateLiveValidation, p.GetDownloadProgress(), p.GetDownloadSpeed(), p.DownloadDirectory}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Downloading (and validating)", p.GetDownloadProgress(), p.GetDownloadSpeed(), p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateDownloaded:
-				rows = append(rows, row{0, []string{p.ID, StateDownloaded, p.GetDownloadProgress(), p.GetDownloadSpeed(), p.DownloadDirectory}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Downloaded", p.GetDownloadProgress(), p.GetDownloadSpeed(), p.GetDownloadDirectory()}, publishedColour})
+			case plot.DownloadStateLookingForDownloadLocation:
+				rows = append(rows, row{0, []string{p.ID, "Looking for download location", "-", "-", p.GetDownloadDirectory()}, publishedColour})
+			case plot.DownloadStateWaitingForHashes:
+				rows = append(rows, row{0, []string{p.ID, "Waiting for hashes", "-", "-", p.GetDownloadDirectory()}, publishedColour})
+			case plot.DownloadStateEnqueued:
+				rows = append(rows, row{0, []string{p.ID, "Download enqueued", "-", "-", p.GetDownloadDirectory()}, publishedColour})
 			default:
-				rows = append(rows, row{0, []string{p.ID, StateDownloadPending, "-", "-", "-"}, publishedColour})
+				rows = append(rows, row{0, []string{p.ID, "Pending", "-", "-", "-"}, publishedColour})
 			}
 		case plot.StateCancelled:
 			cancelled++

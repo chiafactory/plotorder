@@ -17,8 +17,8 @@ func GetAvailableSpace(directory string) (uint64, string, error) {
 		uintptr(unsafe.Pointer(&freeBytes)),
 		uintptr(unsafe.Pointer(&totalBytes)),
 		uintptr(unsafe.Pointer(&availableBytes)))
-	if err != nil {
-		return 0, "", err
+	if err.(windows.Errno) == 0 {
+		return uint64(freeBytes), filepath.VolumeName(directory), nil
 	}
-	return uint64(freeBytes), filepath.VolumeName(directory), nil
+	return 0, "", err
 }
