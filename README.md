@@ -23,7 +23,7 @@ The recommended way to use `plotorder` is to download the latest release binarie
 
 **Windows**
 ```powershell
-Start-Process -NoNewWindow -FilePath "plotorder.exe" -ArgumentList "-api-key:YOUR_API_KEY","-order-id:ORDER_ID"
+Start-Process -NoNewWindow -Wait -FilePath "plotorder.exe" -ArgumentList "--api-key YOUR_API_KEY","--order-id ORDER_ID"
 ```
 
 # Install 
