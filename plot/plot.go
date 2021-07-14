@@ -265,6 +265,7 @@ func (p *Plot) getDownloadSize() (fileSize int64, err error) {
 		err = errors.Wrap(err, "error while making the HTTP request to download the file")
 		return
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		err = fmt.Errorf("invalid status code returned (%d) while trying to get download size", resp.StatusCode)
@@ -561,7 +562,7 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 		err = errors.Wrap(err, "error while making the HTTP request to download the file")
 		return
 	}
-
+	defer resp.Body.Close()
 	if resp.StatusCode != expectedStatusCode {
 		err = fmt.Errorf("invalid status code returned (%d)", resp.StatusCode)
 		return
@@ -582,7 +583,6 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 		)
 
 		defer func() {
-			resp.Body.Close()
 			filebuff.Flush()
 			done <- err
 		}()

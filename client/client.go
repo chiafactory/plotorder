@@ -191,12 +191,12 @@ func (c *Client) apiRequest(ctx context.Context, method string, endpoint string,
 	}
 	log.Debugf("%s got status code %d for (%s %s)", c, res.StatusCode, method, url)
 
+	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		return nil, res.StatusCode, fmt.Errorf("invalid response received (%s)", res.Status)
 	}
 
 	responseBody, err := ioutil.ReadAll(res.Body)
-	defer res.Body.Close()
 
 	return responseBody, res.StatusCode, nil
 }
