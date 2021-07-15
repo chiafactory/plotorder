@@ -194,7 +194,7 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 					p.SetDownloadDirectory(plotDir)
 				}
 			case plot.DownloadStateWaitingForHashes:
-				log.Debugf("%s waiting get the plot verification hashes", p)
+				log.Debugf("%s waiting to get the plot verification hashes", p)
 
 				hashList, err := proc.client.GetHashesForPlot(ctx, p.ID)
 				if err == client.ErrPlotHashesNotReady {

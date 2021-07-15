@@ -197,6 +197,9 @@ func (p *Plot) GetPlottingProgress() string {
 // This is done by calculating a hash of the chunk and comparing it against the right hash in
 // the plot (`p.FileChunkHashes`). Chunks are 0-indexed.
 func (p *Plot) validateChunk(number int64) (valid bool, err error) {
+	if int(number) >= len(p.fileChunkHashes) {
+		return false, fmt.Errorf("chunk to verify (%d; 0-indexed) is greater than the available number of hashes (%d)", number, len(p.fileChunkHashes))
+	}
 
 	// always align to a multiple of `hashChunkSize` bytes
 	stop := (number + 1) * hashChunkSize
@@ -207,6 +210,7 @@ func (p *Plot) validateChunk(number int64) (valid bool, err error) {
 		stop = p.downloadSize
 	}
 
+	// use different handle so we can seek safely (the download might still be in progress)
 	handle, err := os.Open(p.f.Name())
 	if err != nil {
 		return false, err
@@ -231,17 +235,13 @@ func (p *Plot) validateChunk(number int64) (valid bool, err error) {
 	}
 
 	// chunks are 0-indexed
-	for idx := range p.fileChunkHashes {
-		if idx == int(number) {
-			if p.fileChunkHashes[idx] == chunkHash {
-				log.Infof("%s chunk is valid (calculated=%s, expected=%s)", p, chunkHash, p.fileChunkHashes[idx])
-				valid = true
-			} else {
-				log.Errorf("%s chunk is invalid (calculated=%s, expected=%s)", p, chunkHash, p.fileChunkHashes[idx])
-				p.truncateFrom = &start
-			}
-			break
-		}
+	expectedChunkHash := p.fileChunkHashes[number]
+	if chunkHash == expectedChunkHash {
+		valid = true
+		log.Infof("%s chunk is valid (calculated=%s, expected=%s)", p, chunkHash, expectedChunkHash)
+	} else {
+		log.Errorf("%s chunk is invalid (calculated=%s, expected=%s). We'll resume downlaoding from %d", p, chunkHash, expectedChunkHash, start)
+		p.truncateFrom = &start
 	}
 
 	return valid, nil
@@ -298,6 +298,7 @@ func (p *Plot) startValidator(ctx context.Context) {
 				var valid bool
 				valid, err := p.validateChunk(chunk)
 				if err != nil {
+					p.updateDownloadState(DownloadStateFailedValidation)
 					return
 				}
 
@@ -365,6 +366,7 @@ func (p *Plot) InitialiseDownload() error {
 
 func (p *Plot) SetFileHashes(hashes []string) {
 	p.fileChunkHashes = hashes
+	log.Debugf("%s using %d plot file verification hashes", p, len(hashes))
 	p.updateDownloadState(DownloadStateNotStarted)
 }
 
@@ -502,7 +504,7 @@ func (p *Plot) Download(ctx context.Context) (err error) {
 			log.Errorf("%s download failed: %s", p, err.Error())
 			p.updateDownloadState(DownloadStateFailed)
 		} else if p.getDownloadedBytes() == p.downloadSize {
-			log.Errorf("%s download finished", p)
+			log.Infof("%s download finished", p)
 			p.updateDownloadState(DownloadStateDownloaded)
 		} else {
 			log.Infof("%s download was aborted (%s downloaded)", p, humanize.Bytes(uint64(p.getDownloadedBytes())))

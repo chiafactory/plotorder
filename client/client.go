@@ -130,6 +130,11 @@ func (c *Client) GetHashesForPlot(ctx context.Context, plotID string) ([]string,
 	if err != nil {
 		return nil, err
 	}
+
+	if len(r) < 1 {
+		return nil, ErrPlotHashesNotReady
+	}
+
 	return r, nil
 }
 
