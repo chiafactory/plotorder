@@ -58,10 +58,11 @@ func (proc *Processor) getAvailableSpace(plotDir string) (int64, error) {
 	}
 
 	for _, plot := range proc.plots {
-		if plot.GetDownloadDirectory() == "" {
+		dir := plot.GetDownloadDirectory()
+		if dir == "" {
 			continue
 		}
-		if plot.GetDownloadDirectory() == plotDir {
+		if dir == plotDir {
 			remaining := plot.GetRemainingBytes()
 			available -= uint64(remaining)
 		}
@@ -191,7 +192,11 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 					log.Errorf("%s unexpected error while looking for a download directory (%s)", p, err)
 					p.SetDownloadError()
 				} else {
-					p.SetDownloadDirectory(plotDir)
+					err = p.SetDownloadDirectory(plotDir)
+					if err != nil {
+						log.Errorf("%s unexpected error while setting the download directory (%s)", p, err)
+						p.SetDownloadError()
+					}
 				}
 			case plot.DownloadStateWaitingForHashes:
 				log.Debugf("%s waiting to get the plot verification hashes", p)

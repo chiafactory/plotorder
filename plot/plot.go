@@ -132,13 +132,6 @@ func (p *Plot) GetDownloadSize() int64 {
 	return p.downloadSize
 }
 
-func (p *Plot) GetDownloadFilepath() string {
-	if p.downloadFilename == "" || p.downloadDirectory == "" {
-		return ""
-	}
-	return path.Join(p.downloadDirectory, p.downloadFilename)
-}
-
 func (p *Plot) GetDownloadFilename() string {
 	return p.downloadFilename
 }
@@ -298,6 +291,7 @@ func (p *Plot) startValidator(ctx context.Context) {
 				var valid bool
 				valid, err := p.validateChunk(chunk)
 				if err != nil {
+					log.Errorf("%s error while validating chunk (%d): %s", p, chunk, err.Error())
 					p.updateDownloadState(DownloadStateFailedValidation)
 					return
 				}
@@ -370,9 +364,32 @@ func (p *Plot) SetFileHashes(hashes []string) {
 	p.updateDownloadState(DownloadStateNotStarted)
 }
 
-func (p *Plot) SetDownloadDirectory(dir string) {
+func (p *Plot) SetDownloadDirectory(dir string) (err error) {
+	filePath := path.Join(dir, p.downloadFilename)
+
+	// we'll create a new file if it does not exist or append to
+	// it if it does
+	var openFlags int
+	_, err = os.Stat(filePath)
+	if err == nil {
+		openFlags = os.O_RDWR | os.O_APPEND
+	} else {
+		openFlags = os.O_CREATE | os.O_EXCL | os.O_RDWR
+	}
+
+	// get file handle that we'll use for the download
+	var file *os.File
+	file, err = os.OpenFile(filePath, openFlags, os.ModePerm)
+	if err != nil {
+		err = errors.Wrap(err, "could not open the file for writing")
+		return
+	}
+
+	p.f = file
 	p.downloadDirectory = dir
+
 	p.updateDownloadState(DownloadStateWaitingForHashes)
+	return nil
 }
 
 func (p *Plot) GetDownloadDirectory() string {
@@ -408,41 +425,13 @@ func (p *Plot) PrepareDownload(ctx context.Context) (err error) {
 	// as soon as we get into here, we'll mark this as false
 	p.downloadError = false
 
-	filePath := p.GetDownloadFilepath()
+	fInfo, _ := p.f.Stat()
+	downloaded := fInfo.Size()
 
-	// we'll create a new file if it does not exist or append to
-	// it if it does
-	var (
-		openFlags int
-		fInfo     os.FileInfo
-	)
-	fInfo, err = os.Stat(filePath)
-	if err == nil {
-		openFlags = os.O_RDWR | os.O_APPEND
-
-		// if the file has been fully downloaded, stop here
-		if fInfo.Size() == p.downloadSize {
-			log.Infof("%s is already downloaded", p)
-			p.updateDownloadState(DownloadStateDownloaded)
-			return
-		}
-	} else {
-		openFlags = os.O_CREATE | os.O_EXCL | os.O_RDWR
-	}
-
-	// save file handle in plot
-	var file *os.File
-	file, err = os.OpenFile(filePath, openFlags, os.ModePerm)
-	if err != nil {
-		err = errors.Wrap(err, "could not open the file for writing")
-		return
-	}
-	p.f = file
-
-	var downloaded int64
-	downloaded, err = file.Seek(0, io.SeekEnd)
-	if err != nil {
-		err = errors.Wrap(err, "could not seek the file")
+	// if the file has been fully downloaded, stop here
+	if downloaded == p.downloadSize {
+		log.Infof("%s is already downloaded", p)
+		p.updateDownloadState(DownloadStateDownloaded)
 		return
 	}
 
