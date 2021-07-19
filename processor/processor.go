@@ -181,7 +181,7 @@ func (proc *Processor) process(ctx context.Context) (bool, error) {
 			nextScheduleTime = now.Add(1 * time.Minute)
 		case plot.StatePublished:
 			switch p.GetDownloadState() {
-			case plot.DownloadStateLookingForDownloadLocation:
+			case plot.DownloadStateLookingForDownloadDirectory:
 				log.Debugf("%s looking for an available download directory for %s", proc, p.ID)
 
 				plotDir, err := proc.getPlotDownloadDirectory(p)

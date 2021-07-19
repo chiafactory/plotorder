@@ -3,3 +3,4 @@ plots/
 logs/
 *.log
 *.plot
+.DS_STORE

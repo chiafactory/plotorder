@@ -137,7 +137,7 @@ func (r *Reporter) render(plots []*plot.Plot) {
 				rows = append(rows, row{0, []string{p.ID, "Downloading (and validating)", p.GetDownloadProgress(), p.GetDownloadSpeed(), p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateDownloaded:
 				rows = append(rows, row{0, []string{p.ID, "Downloaded", p.GetDownloadProgress(), p.GetDownloadSpeed(), p.GetDownloadDirectory()}, publishedColour})
-			case plot.DownloadStateLookingForDownloadLocation:
+			case plot.DownloadStateLookingForDownloadDirectory:
 				rows = append(rows, row{0, []string{p.ID, "Looking for download location", "-", "-", p.GetDownloadDirectory()}, publishedColour})
 			case plot.DownloadStateWaitingForHashes:
 				rows = append(rows, row{0, []string{p.ID, "Waiting for hashes", "-", "-", p.GetDownloadDirectory()}, publishedColour})

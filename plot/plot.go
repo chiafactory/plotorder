@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,18 +33,18 @@ type DownloadState string
 
 const (
 	// Plot download statuses (only used in this tool)
-	DownloadStateLookingForDownloadLocation DownloadState = "LOOKING_FOR_DOWNLOAD_LOCATION"
-	DownloadStateNotStarted                 DownloadState = "NOT_STARTED"
-	DownloadStateWaitingForHashes           DownloadState = "WAITING_FOR_HASHES"
-	DownloadStatePreparing                  DownloadState = "PREPARING"
-	DownloadStateReady                      DownloadState = "READY"
-	DownloadStateDownloading                DownloadState = "DOWNLOADING"
-	DownloadStateDownloaded                 DownloadState = "DOWNLOADED"
-	DownloadStateFailed                     DownloadState = "FAILED"
-	DownloadStateInitialValidation          DownloadState = "INITIAL_VALIDATION"
-	DownloadStateLiveValidation             DownloadState = "LIVE_VALIDATION"
-	DownloadStateFailedValidation           DownloadState = "FAILED_VALIDATION"
-	DownloadStateEnqueued                   DownloadState = "ENQUEUED"
+	DownloadStateLookingForDownloadDirectory DownloadState = "LOOKING_FOR_DOWNLOAD_DIRECTORY"
+	DownloadStateNotStarted                  DownloadState = "NOT_STARTED"
+	DownloadStateWaitingForHashes            DownloadState = "WAITING_FOR_HASHES"
+	DownloadStatePreparing                   DownloadState = "PREPARING"
+	DownloadStateReady                       DownloadState = "READY"
+	DownloadStateDownloading                 DownloadState = "DOWNLOADING"
+	DownloadStateDownloaded                  DownloadState = "DOWNLOADED"
+	DownloadStateFailed                      DownloadState = "FAILED"
+	DownloadStateInitialValidation           DownloadState = "INITIAL_VALIDATION"
+	DownloadStateLiveValidation              DownloadState = "LIVE_VALIDATION"
+	DownloadStateFailedValidation            DownloadState = "FAILED_VALIDATION"
+	DownloadStateEnqueued                    DownloadState = "ENQUEUED"
 )
 
 // hashChunkSize is the maximum size (in bytes) of the chunks we'll validate
@@ -354,11 +355,20 @@ func (p *Plot) InitialiseDownload() error {
 		return err
 	}
 	p.downloadFilename = fileName
-	p.updateDownloadState(DownloadStateLookingForDownloadLocation)
+	p.updateDownloadState(DownloadStateLookingForDownloadDirectory)
 	return nil
 }
 
+func (p *Plot) requiredNumberOfFileHashes() int {
+	return int(math.Ceil(float64(p.downloadSize) / float64(hashChunkSize)))
+}
+
 func (p *Plot) SetFileHashes(hashes []string) {
+	required := p.requiredNumberOfFileHashes()
+	if len(hashes) < required {
+		log.Warnf("%s does not yet have all required plot file verification hashes (has=%d, requires=%s)", p, len(hashes), required)
+		return
+	}
 	p.fileChunkHashes = hashes
 	log.Debugf("%s using %d plot file verification hashes", p, len(hashes))
 	p.updateDownloadState(DownloadStateNotStarted)
