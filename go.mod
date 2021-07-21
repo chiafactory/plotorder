@@ -3,6 +3,7 @@ module chiafactory/plotorder
 go 1.16
 
 require (
+	github.com/cenkalti/backoff/v4 v4.1.1
 	github.com/dustin/go-humanize v1.0.0
 	github.com/fatih/color v1.12.0
 	github.com/gosuri/uilive v0.0.4
