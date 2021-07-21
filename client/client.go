@@ -2,7 +2,6 @@ package client
 
 import (
 	"bytes"
-	"chiafactory/plotorder/order"
 	"chiafactory/plotorder/plot"
 	"context"
 	"encoding/json"
@@ -25,22 +24,6 @@ type Client struct {
 	apiURL string
 	apiKey string
 	client *http.Client
-}
-
-// GetOrder gets the order for the given ID
-func (c *Client) GetOrder(ctx context.Context, ID string) (*order.Order, error) {
-	response, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plot_orders/%s", ID), nil, retryNonOk)
-	if err != nil {
-		return nil, err
-	}
-
-	var r orderResponse
-	err = json.Unmarshal(response, &r)
-	if err != nil {
-		return nil, err
-	}
-
-	return &order.Order{ID: r.ID}, nil
 }
 
 //GetPlot gets the plot with the given ID
