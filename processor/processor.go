@@ -303,14 +303,14 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 
 	ticker := time.NewTicker(proc.frequency)
 
-	order, err := proc.client.GetOrder(ctx, orderID)
+	plots, err := proc.client.GetPlotsForOrderID(ctx, orderID)
 	if err != nil {
 		return err
 	}
 
-	plots, err := proc.client.GetPlotsForOrderID(ctx, order.ID)
-	if err != nil {
-		return err
+	if len(plots) == 0 {
+		logrus.Infof("%s %s has no available plots", proc, orderID)
+		return
 	}
 
 	proc.plots = plots
@@ -319,7 +319,7 @@ func (proc *Processor) Start(ctx context.Context, orderID string) (err error) {
 		proc.schedule[p.ID] = time.Time{}
 	}
 
-	log.Infof("%s %s has %d plots", proc, order, len(plots))
+	log.Infof("%s %s has %d plots", proc, orderID, len(plots))
 
 	var (
 		done     = make(chan struct{})

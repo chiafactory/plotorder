@@ -2,16 +2,16 @@ package client
 
 import (
 	"bytes"
-	"chiafactory/plotorder/order"
 	"chiafactory/plotorder/plot"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -26,46 +26,9 @@ type Client struct {
 	client *http.Client
 }
 
-// GetOrders gets the order for the given ID
-func (c *Client) GetOrder(ctx context.Context, ID string) (*order.Order, error) {
-	response, _, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plot_orders/%s", ID), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var r orderResponse
-	err = json.Unmarshal(response, &r)
-	if err != nil {
-		return nil, err
-	}
-
-	return &order.Order{ID: r.ID}, nil
-}
-
-// GetOrders lists all the orders for the given account
-func (c *Client) GetOrders(ctx context.Context) ([]*order.Order, error) {
-	response, _, err := c.apiRequest(ctx, http.MethodGet, "plot_orders", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var r getOrdersResponse
-	err = json.Unmarshal(response, &r)
-	if err != nil {
-		return nil, err
-	}
-
-	orders := []*order.Order{}
-	for _, result := range r.Results {
-		orders = append(orders, &order.Order{ID: result.ID})
-	}
-
-	return orders, nil
-}
-
 //GetPlot gets the plot with the given ID
 func (c *Client) GetPlot(ctx context.Context, ID string) (*plot.Plot, error) {
-	response, _, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plots/%s", ID), nil)
+	response, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plots/%s", ID), nil, retryNonOk)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +60,7 @@ func (c *Client) DeletePlot(ctx context.Context, ID string) (*plot.Plot, error) 
 		return nil, err
 	}
 
-	response, _, err := c.apiRequest(ctx, http.MethodPut, fmt.Sprintf("plots/%s/", ID), reqBytes)
+	response, err := c.apiRequest(ctx, http.MethodPut, fmt.Sprintf("plots/%s/", ID), reqBytes, retryNonOk)
 	if err != nil {
 		return nil, err
 	}
@@ -117,12 +80,20 @@ func (c *Client) DeletePlot(ctx context.Context, ID string) (*plot.Plot, error) 
 }
 
 func (c *Client) GetHashesForPlot(ctx context.Context, plotID string) ([]string, error) {
-	response, statusCode, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plots/%s/hashes/", plotID), nil)
-	if err != nil {
-		if statusCode == http.StatusBadRequest {
-			return nil, ErrPlotHashesNotReady
+	response, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plots/%s/hashes/", plotID), nil, func(code int) bool {
+		// if the hashes are not ready, we'll get a 400, so instead of retrying here we'll
+		// let the caller handle it
+		if code == http.StatusBadRequest || code == http.StatusOK {
+			return false
 		}
+		return true
+	})
+	if err != nil {
 		return nil, err
+	}
+
+	if len(response) <= 0 {
+		return nil, ErrPlotHashesNotReady
 	}
 
 	r := []string{}
@@ -140,7 +111,7 @@ func (c *Client) GetHashesForPlot(ctx context.Context, plotID string) ([]string,
 
 //GetPlotsForOrderID all the plots for the order with given orderID
 func (c *Client) GetPlotsForOrderID(ctx context.Context, orderID string) ([]*plot.Plot, error) {
-	response, _, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plot_orders/%s", orderID), nil)
+	response, err := c.apiRequest(ctx, http.MethodGet, fmt.Sprintf("plot_orders/%s", orderID), nil, retryNonOk)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +135,13 @@ func (c *Client) GetPlotsForOrderID(ctx context.Context, orderID string) ([]*plo
 	return plots, nil
 }
 
-func (c *Client) apiRequest(ctx context.Context, method string, endpoint string, body []byte) ([]byte, int, error) {
+type retryFunction func(code int) bool
+
+func retryNonOk(code int) bool {
+	return code != http.StatusOK
+}
+
+func (c *Client) apiRequest(ctx context.Context, method string, endpoint string, body []byte, retryFunc retryFunction) ([]byte, error) {
 
 	var requestBody io.Reader
 	if body != nil {
@@ -187,23 +164,51 @@ func (c *Client) apiRequest(ctx context.Context, method string, endpoint string,
 	header.Set("Authorization", fmt.Sprintf("Token %s", c.apiKey))
 
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	res, err := c.client.Do(req)
+	// We'll retry API requests using an exponential back-off schedule
+	exp := backoff.NewExponentialBackOff()
+	exp.MaxElapsedTime = 1 * time.Minute
+
+	ticker := backoff.NewTicker(exp)
+	defer ticker.Stop()
+
+	var responseBody []byte
+	for range ticker.C {
+		var res *http.Response
+		res, err = c.client.Do(req)
+		if err != nil {
+			log.Errorf("%s error while making %s request to %s: %s", c, method, url, err.Error())
+			continue
+		}
+
+		responseBody, err = func() ([]byte, error) {
+			defer res.Body.Close()
+			return io.ReadAll(res.Body)
+		}()
+		if err != nil {
+			log.Errorf("%s error while reading the response body after %s request to %s: %s", c, method, url, err.Error())
+			continue
+		}
+
+		// Check if we need to retry this API call, based on the provided retryFunc
+		retry := retryFunc(res.StatusCode)
+
+		log.Debugf("%s got status code %d for (%s %s, retry=%t)", c, res.StatusCode, method, url, retry)
+
+		// If we don't need to retry, stop the ticker and bail
+		if !retry {
+			ticker.Stop()
+			break
+		}
+	}
+
 	if err != nil {
-		return nil, 0, err
-	}
-	log.Debugf("%s got status code %d for (%s %s)", c, res.StatusCode, method, url)
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return nil, res.StatusCode, fmt.Errorf("invalid response received (%s)", res.Status)
+		return nil, err
 	}
 
-	responseBody, err := ioutil.ReadAll(res.Body)
-
-	return responseBody, res.StatusCode, nil
+	return responseBody, nil
 }
 
 func (c *Client) String() string {

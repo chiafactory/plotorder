@@ -6,10 +6,6 @@ type orderResponse struct {
 	ID string `json:"id"`
 }
 
-type getOrdersResponse struct {
-	Results []*orderResponse
-}
-
 type plotResponse struct {
 	ID       string `json:"id"`
 	Progress int    `json:"progress"`
