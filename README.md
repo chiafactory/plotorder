@@ -1,14 +1,14 @@
 # plotorder
 
-This is the recommended way of downloading plots from [Chia Factory](https://chiafactory.com) plotting service.
+This is the _recommended_ way to download [Chia Factory](https://chiafactory.com) orders. It's based on [Chia Factory API](https://chiafactory.com/api/). 
 
-It's using [Chia Factory API](https://chiafactory.com/api/) and streamlines the whole process.
+Chia Factory can generate Chia plots in the cloud for farming [XCH](https://www.chia.net/).
 
 ## Features
- - **Blake2 checksums** on every 10GB plot chunk to avoid bad downloads
+ - **Blake2 checksums** on every 10GB plot chunk to avoid data corruption while downloading 
  - **Multiple plot directories** and will populate them automatically depending on spare space
  - **Parallel downloads** to maximise your bandwidth
- - **Download Resume** 
+ - **Resuming downloads** 
  - **Binaries for most OSes** to get you going ASAP.
 
 
