@@ -491,14 +491,12 @@ func (p *Plot) RetryDownload(ctx context.Context) (err error) {
 
 func (p *Plot) Download(ctx context.Context) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
-	defer func() {
-		cancel()
-		p.cancelDownload = nil
-	}()
-
 	p.cancelDownload = cancel
 
 	defer func() {
+		p.cancelDownload()
+		p.cancelDownload = nil
+
 		if err != nil {
 			log.Errorf("%s download failed: %s", p, err.Error())
 			p.updateDownloadState(DownloadStateFailed)
